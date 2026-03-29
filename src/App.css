@@ -431,6 +431,20 @@
   min-width: 0;
 }
 
+.admin-panel-shell {
+  min-width: 0;
+}
+
+.admin-panel-handle {
+  margin-bottom: 8px;
+  color: #8b6b59;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  cursor: grab;
+}
+
 .category-admin-list {
   display: flex;
   flex-direction: column;
@@ -451,6 +465,29 @@
 .category-admin-name {
   font-weight: 800;
   color: #2f1b11;
+}
+
+.admin-category-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-dropzone {
+  min-height: 120px;
+  padding: 8px;
+  border-radius: 18px;
+  border: 1px dashed rgba(127, 88, 63, 0.12);
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.admin-dropzone.is-over {
+  border-color: #f05d3f;
+  background: rgba(240, 93, 63, 0.08);
+}
+
+.admin-draggable-card {
+  cursor: grab;
 }
 
 .login-shell {

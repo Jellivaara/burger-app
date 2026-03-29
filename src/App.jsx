@@ -38,6 +38,7 @@ const statusTitles = {
 const TABLE_OPTIONS = [...Array(20)].map((_, index) => String(index + 1));
 const UNCATEGORIZED_ID = "__uncategorized__";
 const UNCATEGORIZED_LABEL = "Tyhjä kategoria";
+const ADMIN_TOOL_PANELS = ["meal-form", "category-manager", "menu-list"];
 
 function groupOrderItems(items = []) {
   const groupedItems = {};
@@ -85,7 +86,9 @@ function buildCategoryGroups(menu, categories, categoryOrder = []) {
   return orderedCategories
     .map((category) => ({
       ...category,
-      items: menu.filter((meal) => normalizeCategoryId(meal.categoryId) === category.id),
+      items: menu
+        .filter((meal) => normalizeCategoryId(meal.categoryId) === category.id)
+        .sort((left, right) => (left.order ?? 0) - (right.order ?? 0)),
     }))
     .filter((category) => category.items.length > 0);
 }
@@ -751,6 +754,7 @@ function AdminApp({ menu, categories }) {
   const [categoryName, setCategoryName] = useState("");
   const [editingCategory, setEditingCategory] = useState(null);
   const [categoryLoading, setCategoryLoading] = useState(false);
+  const [adminToolOrder, setAdminToolOrder] = useState(ADMIN_TOOL_PANELS);
 
   const resetForm = () => {
     setEditing(null);
@@ -780,6 +784,7 @@ function AdminApp({ menu, categories }) {
       price: Number(price),
       image: imageUrl || "",
       categoryId: selectedCategoryId || "",
+      order: editing?.order ?? menu.length,
     };
     if (editing) {
       update(ref(db, `menu/${editing.id}`), mealData);
@@ -857,6 +862,234 @@ function AdminApp({ menu, categories }) {
     }
   };
 
+  const reorderAdminTools = (result) => {
+    const nextOrder = Array.from(adminToolOrder);
+    const [removed] = nextOrder.splice(result.source.index, 1);
+    nextOrder.splice(result.destination.index, 0, removed);
+    setAdminToolOrder(nextOrder);
+  };
+
+  const moveMealBetweenCategories = async (result) => {
+    const sourceCategoryId = result.source.droppableId.replace("admin-category-", "");
+    const destinationCategoryId = result.destination.droppableId.replace("admin-category-", "");
+    const grouped = buildCategoryGroups(menu, categories);
+    const sourceCategory = grouped.find((category) => category.id === sourceCategoryId);
+    const destinationCategory = grouped.find((category) => category.id === destinationCategoryId);
+    const movingMeal = sourceCategory?.items[result.source.index];
+
+    if (!sourceCategory || !destinationCategory || !movingMeal) {
+      return;
+    }
+
+    const nextSourceItems = Array.from(sourceCategory.items);
+    nextSourceItems.splice(result.source.index, 1);
+
+    const movedMeal = {
+      ...movingMeal,
+      categoryId: destinationCategoryId === UNCATEGORIZED_ID ? "" : destinationCategoryId,
+    };
+
+    const nextDestinationItems =
+      sourceCategoryId === destinationCategoryId ? nextSourceItems : Array.from(destinationCategory.items);
+    nextDestinationItems.splice(result.destination.index, 0, movedMeal);
+
+    const updates = {};
+    nextSourceItems.forEach((meal, index) => {
+      updates[`menu/${meal.id}/order`] = index;
+      if (sourceCategoryId !== destinationCategoryId && meal.categoryId !== movingMeal.categoryId) {
+        updates[`menu/${meal.id}/categoryId`] = meal.categoryId || "";
+      }
+    });
+
+    nextDestinationItems.forEach((meal, index) => {
+      updates[`menu/${meal.id}/order`] = index;
+      const nextCategoryId = destinationCategoryId === UNCATEGORIZED_ID ? "" : destinationCategoryId;
+      if ((meal.categoryId || "") !== nextCategoryId) {
+        updates[`menu/${meal.id}/categoryId`] = nextCategoryId;
+      }
+    });
+
+    await update(ref(db), updates);
+  };
+
+  const onAdminDragEnd = async (result) => {
+    if (!result.destination) {
+      return;
+    }
+
+    if (result.type === "ADMIN_TOOL") {
+      reorderAdminTools(result);
+      return;
+    }
+
+    if (result.type === "ADMIN_MEAL") {
+      await moveMealBetweenCategories(result);
+    }
+  };
+
+  const adminPanels = {
+    "meal-form": (
+      <div className="panel">
+        <h2 className="panel-title">{editing ? "Muokkaa annosta" : "Lisää uusi annos"}</h2>
+        <div className="content-stack">
+          <div className="field-group">
+            <label>Nimi</label>
+            <input
+              className="input"
+              type="text"
+              placeholder="Esim. Tuplajuustoburger"
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+            />
+          </div>
+          <div className="field-group">
+            <label>Hinta</label>
+            <input
+              className="input"
+              type="number"
+              placeholder="0"
+              value={price}
+              onChange={(event) => setPrice(event.target.value)}
+            />
+          </div>
+          <div className="field-group">
+            <label>Kategoria</label>
+            <select
+              className="select"
+              value={selectedCategoryId}
+              onChange={(event) => setSelectedCategoryId(event.target.value)}
+            >
+              <option value="">Tyhjä kategoria</option>
+              {categories.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field-group">
+            <label>Kuva</label>
+            <input
+              className="file-input"
+              type="file"
+              onChange={(event) => setImageFile(event.target.files[0])}
+            />
+          </div>
+          <div className="controls-row">
+            <button className="btn btn-primary" onClick={saveMeal} disabled={loading}>
+              {editing ? "Tallenna muutokset" : "Lisää annos"}
+            </button>
+            {editing ? (
+              <button className="btn btn-secondary" onClick={resetForm}>
+                Peruuta
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+    ),
+    "category-manager": (
+      <div className="panel">
+        <h2 className="panel-title">Kategoriat</h2>
+        <div className="content-stack">
+          <div className="field-group">
+            <label>Kategorian nimi</label>
+            <input
+              className="input"
+              type="text"
+              placeholder="Esim. Burgerit"
+              value={categoryName}
+              onChange={(event) => setCategoryName(event.target.value)}
+            />
+          </div>
+          <div className="controls-row">
+            <button className="btn btn-primary" onClick={saveCategory} disabled={categoryLoading}>
+              {editingCategory ? "Tallenna kategoria" : "Lisää kategoria"}
+            </button>
+            {editingCategory ? (
+              <button className="btn btn-secondary" onClick={resetCategoryForm}>
+                Peruuta
+              </button>
+            ) : null}
+          </div>
+          <div className="category-admin-list">
+            {categories.map((category) => (
+              <div key={category.id} className="category-admin-item">
+                <div>
+                  <div className="category-admin-name">{category.name}</div>
+                  <div className="muted">ID: {category.id}</div>
+                </div>
+                <div className="controls-row">
+                  <button className="btn btn-primary btn-small" onClick={() => startEditCategory(category)}>
+                    Muokkaa
+                  </button>
+                  <button className="btn btn-danger btn-small" onClick={() => deleteCategory(category)}>
+                    Poista
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    ),
+    "menu-list": (
+      <div className="panel admin-menu-panel">
+        <h2 className="panel-title">Ruokalista</h2>
+        <p className="muted" style={{ marginTop: -4, marginBottom: 14 }}>
+          Vedä annoksia kategorioiden välillä tai järjestele niitä kategorian sisällä.
+        </p>
+        <div className="content-stack">
+          {buildCategoryGroups(menu, categories, categories.map((category) => category.id)).map((category) => (
+            <div key={category.id} className="admin-category-block">
+              <h3 className="panel-title">{category.name}</h3>
+              <Droppable droppableId={`admin-category-${category.id}`} type="ADMIN_MEAL">
+                {(provided, snapshot) => (
+                  <div
+                    ref={provided.innerRef}
+                    {...provided.droppableProps}
+                    className={`product-grid admin-dropzone${snapshot.isDraggingOver ? " is-over" : ""}`}
+                  >
+                    {category.items.map((meal, index) => (
+                      <Draggable key={meal.id} draggableId={meal.id} index={index}>
+                        {(draggableProvided) => (
+                          <div
+                            ref={draggableProvided.innerRef}
+                            {...draggableProvided.draggableProps}
+                            {...draggableProvided.dragHandleProps}
+                            className="product-card admin-draggable-card"
+                            style={draggableProvided.draggableProps.style}
+                          >
+                            {meal.image ? (
+                              <img className="product-image" src={meal.image} alt={meal.name} />
+                            ) : (
+                              <div className="product-placeholder" />
+                            )}
+                            <div className="product-name">{meal.name}</div>
+                            <div className="product-price">{meal.price}€</div>
+                            <div className="content-stack" style={{ gap: 8, marginTop: 12 }}>
+                              <button className="btn btn-primary btn-small" onClick={() => startEdit(meal)}>
+                                Muokkaa
+                              </button>
+                              <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
+                                Poista
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </div>
+          ))}
+        </div>
+      </div>
+    ),
+  };
+
   return (
     <div className="screen">
       <ScreenHeader
@@ -864,145 +1097,32 @@ function AdminApp({ menu, categories }) {
         subtitle="Hallinnoi listaa samassa kortti- ja paneelikielessä kuin kassa ja keittiö, ilman että työnkulku muuttuu."
       />
 
-      <div className="admin-grid">
-        <div className="panel">
-          <h2 className="panel-title">{editing ? "Muokkaa annosta" : "Lisää uusi annos"}</h2>
-          <div className="content-stack">
-            <div className="field-group">
-              <label>Nimi</label>
-              <input
-                className="input"
-                type="text"
-                placeholder="Esim. Tuplajuustoburger"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </div>
-            <div className="field-group">
-              <label>Hinta</label>
-              <input
-                className="input"
-                type="number"
-                placeholder="0"
-                value={price}
-                onChange={(event) => setPrice(event.target.value)}
-              />
-            </div>
-            <div className="field-group">
-              <label>Kategoria</label>
-              <select
-                className="select"
-                value={selectedCategoryId}
-                onChange={(event) => setSelectedCategoryId(event.target.value)}
-              >
-                <option value="">Tyhjä kategoria</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="field-group">
-              <label>Kuva</label>
-              <input
-                className="file-input"
-                type="file"
-                onChange={(event) => setImageFile(event.target.files[0])}
-              />
-            </div>
-            <div className="controls-row">
-              <button className="btn btn-primary" onClick={saveMeal} disabled={loading}>
-                {editing ? "Tallenna muutokset" : "Lisää annos"}
-              </button>
-              {editing ? (
-                <button className="btn btn-secondary" onClick={resetForm}>
-                  Peruuta
-                </button>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <div className="panel">
-          <h2 className="panel-title">Kategoriat</h2>
-          <div className="content-stack">
-            <div className="field-group">
-              <label>Kategorian nimi</label>
-              <input
-                className="input"
-                type="text"
-                placeholder="Esim. Burgerit"
-                value={categoryName}
-                onChange={(event) => setCategoryName(event.target.value)}
-              />
-            </div>
-            <div className="controls-row">
-              <button className="btn btn-primary" onClick={saveCategory} disabled={categoryLoading}>
-                {editingCategory ? "Tallenna kategoria" : "Lisää kategoria"}
-              </button>
-              {editingCategory ? (
-                <button className="btn btn-secondary" onClick={resetCategoryForm}>
-                  Peruuta
-                </button>
-              ) : null}
-            </div>
-            <div className="category-admin-list">
-              {categories.map((category) => (
-                <div key={category.id} className="category-admin-item">
-                  <div>
-                    <div className="category-admin-name">{category.name}</div>
-                    <div className="muted">ID: {category.id}</div>
-                  </div>
-                  <div className="controls-row">
-                    <button className="btn btn-primary btn-small" onClick={() => startEditCategory(category)}>
-                      Muokkaa
-                    </button>
-                    <button className="btn btn-danger btn-small" onClick={() => deleteCategory(category)}>
-                      Poista
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="panel admin-menu-panel">
-          <h2 className="panel-title">Ruokalista</h2>
-          <p className="muted" style={{ marginTop: -4, marginBottom: 14 }}>
-            Kaikki annokset näkyvät tässä samantyyppisinä kortteina kuin tilausten tuotteet kassan puolella.
-          </p>
-          <div className="content-stack">
-            {buildCategoryGroups(menu, categories).map((category) => (
-              <div key={category.id}>
-                <h3 className="panel-title">{category.name}</h3>
-                <div className="product-grid">
-                  {category.items.map((meal) => (
-                    <div key={meal.id} className="product-card">
-                      {meal.image ? (
-                        <img className="product-image" src={meal.image} alt={meal.name} />
-                      ) : (
-                        <div className="product-placeholder" />
-                      )}
-                      <div className="product-name">{meal.name}</div>
-                      <div className="product-price">{meal.price}€</div>
-                      <div className="content-stack" style={{ gap: 8, marginTop: 12 }}>
-                        <button className="btn btn-primary btn-small" onClick={() => startEdit(meal)}>
-                          Muokkaa
-                        </button>
-                        <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
-                          Poista
-                        </button>
+      <DragDropContext onDragEnd={onAdminDragEnd}>
+        <Droppable droppableId="admin-tools" direction="horizontal" type="ADMIN_TOOL">
+          {(provided) => (
+            <div ref={provided.innerRef} {...provided.droppableProps} className="admin-grid">
+              {adminToolOrder.map((panelId, index) => (
+                <Draggable key={panelId} draggableId={panelId} index={index}>
+                  {(draggableProvided) => (
+                    <div
+                      ref={draggableProvided.innerRef}
+                      {...draggableProvided.draggableProps}
+                      className="admin-panel-shell"
+                      style={draggableProvided.draggableProps.style}
+                    >
+                      <div className="admin-panel-handle" {...draggableProvided.dragHandleProps}>
+                        Järjestele paneeli
                       </div>
+                      {adminPanels[panelId]}
                     </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+            </div>
+          )}
+        </Droppable>
+      </DragDropContext>
     </div>
   );
 }
@@ -1018,7 +1138,11 @@ export default function App() {
   useEffect(() => {
     onValue(ref(db, "menu"), (snapshot) => {
       const data = snapshot.val() || {};
-      setMenu(Object.entries(data).map(([id, value]) => ({ id, ...value })));
+      setMenu(
+        Object.entries(data)
+          .map(([id, value]) => ({ id, ...value }))
+          .sort((left, right) => (left.order ?? 0) - (right.order ?? 0))
+      );
     });
   }, []);
 
