@@ -44,6 +44,7 @@ const ADMIN_PANEL_TITLES = {
   "menu-list": "Ruokalista",
   "daily-sales": "Päivän myynti",
 };
+const SALES_STAT_ITEMS = ["open", "closed", "deleted"];
 
 function groupOrderItems(items = []) {
   const groupedItems = {};
@@ -1360,7 +1361,7 @@ function AdminApp({ menu, categories }) {
   const [menuCategoryOrder, setMenuCategoryOrder] = useState([]);
   const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [showMealForm, setShowMealForm] = useState(false);
-  const [collapsedPanels, setCollapsedPanels] = useState({});
+  const [collapsedPanels, setCollapsedPanels] = useState({ "menu-list": true });
   const [mealSearch, setMealSearch] = useState("");
   const [showCategories, setShowCategories] = useState(true);
   const [collapsedCategoryIds, setCollapsedCategoryIds] = useState({});
@@ -1370,6 +1371,8 @@ function AdminApp({ menu, categories }) {
   const [inlineMealName, setInlineMealName] = useState("");
   const [inlineMealPrice, setInlineMealPrice] = useState("");
   const [inlineMealCategoryId, setInlineMealCategoryId] = useState("");
+  const [salesStatOrder, setSalesStatOrder] = useState(SALES_STAT_ITEMS);
+  const [draggingSalesStatId, setDraggingSalesStatId] = useState(null);
 
   useEffect(() => {
     onValue(ref(db, "orders"), (snapshot) => {
@@ -1769,6 +1772,28 @@ function AdminApp({ menu, categories }) {
     }));
   };
 
+  const handleSalesStatDrop = (targetId) => {
+    if (!draggingSalesStatId || draggingSalesStatId === targetId) {
+      setDraggingSalesStatId(null);
+      return;
+    }
+
+    setSalesStatOrder((previous) => {
+      const nextOrder = Array.from(previous);
+      const sourceIndex = nextOrder.indexOf(draggingSalesStatId);
+      const targetIndex = nextOrder.indexOf(targetId);
+
+      if (sourceIndex === -1 || targetIndex === -1) {
+        return previous;
+      }
+
+      const [removed] = nextOrder.splice(sourceIndex, 1);
+      nextOrder.splice(targetIndex, 0, removed);
+      return nextOrder;
+    });
+    setDraggingSalesStatId(null);
+  };
+
   const adminPanels = {
     "menu-list": (
       <div className="panel admin-menu-panel">
@@ -2137,18 +2162,32 @@ function AdminApp({ menu, categories }) {
           <div className="sales-total-label">Tuotto tänään</div>
           <div className="sales-total-value">{todaysRevenue.toFixed(2)}€</div>
           <div className="sales-total-stats">
-            <div className="sales-total-stat">
-              <span className="sales-total-stat-label">Suljettu</span>
-              <span className="sales-total-stat-value">{todaysClosedOrders.length}</span>
-            </div>
-            <div className="sales-total-stat">
-              <span className="sales-total-stat-label">Avoin</span>
-              <span className="sales-total-stat-value">{openOrders.length}</span>
-            </div>
-            <div className="sales-total-stat">
-              <span className="sales-total-stat-label">Poistettu</span>
-              <span className="sales-total-stat-value">{todaysDeletedOrders.length}</span>
-            </div>
+            {salesStatOrder.map((statId) => {
+              const statConfig = {
+                closed: { label: "Suljettu", value: todaysClosedOrders.length },
+                open: { label: "Avoin", value: openOrders.length },
+                deleted: { label: "Poistettu", value: todaysDeletedOrders.length },
+              }[statId];
+
+              if (!statConfig) {
+                return null;
+              }
+
+              return (
+                <div
+                  key={statId}
+                  className={`sales-total-stat${draggingSalesStatId === statId ? " is-dragging" : ""}`}
+                  draggable
+                  onDragStart={() => setDraggingSalesStatId(statId)}
+                  onDragEnd={() => setDraggingSalesStatId(null)}
+                  onDragOver={(event) => event.preventDefault()}
+                  onDrop={() => handleSalesStatDrop(statId)}
+                >
+                  <span className="sales-total-stat-label">{statConfig.label}</span>
+                  <span className="sales-total-stat-value">{statConfig.value}</span>
+                </div>
+              );
+            })}
           </div>
           <div className="controls-row" style={{ marginTop: 12 }}>
             <button className="btn btn-danger btn-small" onClick={endDay}>

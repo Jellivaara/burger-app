@@ -850,6 +850,22 @@
   border-radius: 14px;
   background: rgba(255, 255, 255, 0.56);
   border: 1px solid rgba(127, 88, 63, 0.12);
+  cursor: grab;
+  user-select: none;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.sales-total-stat:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 18px rgba(62, 37, 20, 0.08);
+}
+
+.sales-total-stat.is-dragging {
+  opacity: 0.7;
+  border-color: rgba(240, 93, 63, 0.45);
 }
 
 .sales-total-stat-label {
