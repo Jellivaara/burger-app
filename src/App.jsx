@@ -986,6 +986,18 @@ function AdminApp({ menu, categories }) {
     }
   };
 
+  const endDay = async () => {
+    if (
+      !window.confirm(
+        "Haluatko varmasti lopettaa päivän? Tämä tyhjentää kaikki tilaukset, vapauttaa pöydät ja nollaa päivän myynnin."
+      )
+    ) {
+      return;
+    }
+
+    await remove(ref(db, "orders"));
+  };
+
   const todaysClosedOrders = orders
     .filter((order) => order.status === "menneet" && isSameLocalDay(order.closedAt || order.createdAt))
     .sort((left, right) => (right.closedAt || right.createdAt || 0) - (left.closedAt || left.createdAt || 0));
@@ -1240,6 +1252,11 @@ function AdminApp({ menu, categories }) {
           <div className="sales-total-value">{todaysRevenue.toFixed(2)}€</div>
           <div className="muted">
             {todaysClosedOrders.length} suljettua tilausta tänään
+          </div>
+          <div className="controls-row" style={{ marginTop: 12 }}>
+            <button className="btn btn-danger btn-small" onClick={endDay}>
+              Lopeta päivä
+            </button>
           </div>
         </div>
 
