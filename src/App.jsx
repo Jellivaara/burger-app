@@ -133,14 +133,15 @@ function CashierApp({ menu }) {
     });
   }, []);
 
+  const inactiveStatuses = ["paid", "closed", "menneet"];
   const activeTables = orders
-    .filter((order) => !["paid", "closed"].includes(order.status))
+    .filter((order) => !inactiveStatuses.includes(order.status))
     .map((order) => order.table);
   const availableTables = [...Array(20)]
     .map((_, index) => String(index + 1))
     .filter((candidate) => !activeTables.includes(candidate) || candidate === table);
   const checkTableAvailable = () =>
-    !orders.find((order) => order.table === table && !["paid", "closed"].includes(order.status));
+    !orders.find((order) => order.table === table && !inactiveStatuses.includes(order.status));
 
   const startNewOrder = () => {
     if (!checkTableAvailable()) {
@@ -191,6 +192,17 @@ function CashierApp({ menu }) {
   };
 
   const startEditOrder = (order) => {
+    if (
+      ["cooking", "ready"].includes(order.status) &&
+      !window.confirm(
+        order.status === "cooking"
+          ? "Tämä tilaus on työn alla. Haluatko varmasti muokata sitä?"
+          : "Tämä tilaus on valmis vietäväksi pöytään. Haluatko varmasti muokata sitä?"
+      )
+    ) {
+      return;
+    }
+
     setEditingId(order.id);
     setCurrentOrder(order.items || []);
     setTable(order.table);
