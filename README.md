@@ -1,25 +1,25 @@
 # Burger App
 
-Selainpohjainen ravintolan tilaushallintasovellus, jossa on erilliset näkymät kassalle, keittiölle ja adminille.
+Vibe-koodaamalla toteutettu selainpohjainen ravintolan tilaushallintasovellus, jossa on erilliset näkymät kassalle, keittiölle ja adminille.
 
 Sovellus on rakennettu `React` + `Vite` -pinolla ja käyttää `Firebase Realtime Databasea` sekä `Firebase Storagea`.
 
 ## Ominaisuudet
 
-- `Kassa`
+ `Kassa`
 - uuden tilauksen luonti
 - tilausten muokkaus suoraan tilauskortin sisällä
 - pöytien hallinta ja vapaat pöydät
 - annoshaku nimellä tai kategorialla
 - kategoriatila ja kategorioimaton näkymä
 
-- `Keittiö`
+ `Keittiö`
 - tilaukset vaiheittain omissa sarakkeissa
 - drag and drop tilausten siirtämiseen
 - muokattujen tilausten muutosten korostus
 - kuittaus keittiölle näkyville muutoksille
 
-- `Admin`
+ `Admin`
 - ruokalistan hallinta
 - kategorioiden lisäys, muokkaus, poisto ja järjestely
 - annosten lisäys, inline-muokkaus, poisto ja siirto kategorioiden välillä
@@ -50,24 +50,6 @@ Käynnistä kehityspalvelin:
 npm run dev
 ```
 
-Rakenna tuotantoversio:
-
-```bash
-npm run build
-```
-
-Esikatsele buildia paikallisesti:
-
-```bash
-npm run preview
-```
-
-Tarkista lint:
-
-```bash
-npm run lint
-```
-
 ## Projektirakenne
 
 ```text
@@ -95,19 +77,19 @@ Nykyisessä versiossa Firebase-konfiguraatio on sovelluskoodissa tiedostossa `sr
 
 ### Kassa
 
-Kassalla luodaan ja muokataan pöytätilauksia sekä siirretään tilauksia eteenpäin keittiöprosessissa.
+Kassalla luodaan ja muokataan pöytätilauksia sekä siirretään tilauksia eteenpäin keittiölle.
 
 ### Keittiö
 
-Keittiö seuraa tilauksia valmistusvaiheittain ja näkee selkeästi, mitä tilaukseen on lisätty, poistettu tai muutettu.
+Keittiö siirtää tilauksia (Odottaa, Työn alla ja valmis) osioiden välillä. Keittiö näkee myös selkeästi kassan tekemät muutokset tilauksiin.
 
 ### Admin
 
-Admin hallinnoi ruokalistaa, kategorioita, päivän myyntiä, avoimia pöytiä ja päivän päättämistä.
+Admin hallinnoi ruokalistaa, tuotekategorioita, päivän myyntiä, avoimia pöytiä ja päivän päättämistä.
 
 ## Huomioita
-
-- Sovellus on suunniteltu kosketus- ja hiirikäyttöön.
+- Sovellus on toteutettu vibe-koodamalla käyttäen `Codexia`
+- Sovellus on suunniteltu käytettäväksi tietokoneella ja tabletilla tai älypuhelimella.
 - Drag and drop -toimintoja on sekä ruokalistassa että hallintapaneeleissa.
 - Päivän lopetus vaatii, että avoimet pöydät on ensin suljettu tai poistettu.
 
@@ -115,14 +97,3 @@ Admin hallinnoi ruokalistaa, kategorioita, päivän myyntiä, avoimia pöytiä j
 
 - Pääosa sovelluslogiikasta on tällä hetkellä tiedostossa `src/App.jsx`.
 - Ulkoasut ja näkymien yhteinen visuaalinen kieli ovat tiedostossa `src/App.css`.
-
-## Julkaisu GitHubiin
-
-Kun viet projektin GitHubiin, tämä `README.md` näkyy automaattisesti repositorion etusivulla dokumentaationa.
-
-Suositeltavaa ennen julkaisua:
-
-- tarkista `.gitignore`
-- varmista ettei salaisuuksia ole kovakoodattu tuotantoon
-- aja `npm run lint`
-- aja `npm run build`
