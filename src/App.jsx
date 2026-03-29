@@ -110,6 +110,15 @@ function summarizeOrderChanges(previousItems = [], nextItems = []) {
   return summary;
 }
 
+function hasOrderChanges(summary) {
+  return Boolean(
+    summary &&
+      ((summary.added && summary.added.length > 0) ||
+        (summary.removed && summary.removed.length > 0) ||
+        (summary.changed && summary.changed.length > 0))
+  );
+}
+
 function normalizeCategoryId(categoryId) {
   return categoryId || UNCATEGORIZED_ID;
 }
@@ -229,7 +238,7 @@ function CashierApp({ menu, categories }) {
   const [table, setTable] = useState("1");
   const [currentOrder, setCurrentOrder] = useState([]);
   const [orders, setOrders] = useState([]);
-  const [editingId, setEditingId] = useState(null);
+  const [editingOrders, setEditingOrders] = useState({});
   const [newOrderMode, setNewOrderMode] = useState(false);
   const [orderChanged, setOrderChanged] = useState(false);
   const [menuCategoryOrder, setMenuCategoryOrder] = useState([]);
@@ -249,14 +258,14 @@ function CashierApp({ menu, categories }) {
 
       setOrders(nextOrders);
       setTable((previous) => {
-        if (editingId || newOrderMode || !occupiedTables.includes(previous)) {
+        if (newOrderMode || !occupiedTables.includes(previous)) {
           return previous;
         }
 
         return TABLE_OPTIONS.find((candidate) => !occupiedTables.includes(candidate)) || previous;
       });
     });
-  }, [editingId, newOrderMode]);
+  }, [newOrderMode]);
 
   const inactiveStatuses = ["paid", "closed", "menneet"];
   const activeTables = orders
@@ -295,7 +304,6 @@ function CashierApp({ menu, categories }) {
     }
 
     setCurrentOrder([]);
-    setEditingId(null);
     setNewOrderMode(true);
     setOrderChanged(false);
     setMealSearch("");
@@ -308,31 +316,21 @@ function CashierApp({ menu, categories }) {
       return;
     }
 
-    const existingOrder = editingId ? orders.find((order) => order.id === editingId) : null;
     // eslint-disable-next-line react-hooks/purity
     const now = Date.now();
-    const editSummary = existingOrder
-      ? summarizeOrderChanges(existingOrder.items || [], currentOrder)
-      : null;
     const data = {
       table,
       items: currentOrder,
-      status: existingOrder?.status || "waiting",
-      updated: Boolean(editingId),
-      editSummary: editingId ? editSummary : null,
-      createdAt: existingOrder?.createdAt || now,
-      orderIndex: existingOrder?.orderIndex || now,
+      status: "waiting",
+      updated: false,
+      editSummary: null,
+      createdAt: now,
+      orderIndex: now,
     };
 
-    if (editingId) {
-      update(ref(db, `orders/${editingId}`), data);
-    } else {
-      push(ref(db, "orders"), data);
-    }
-
-    const nextAvailableTable = editingId ? table : getNextAvailableTable();
+    push(ref(db, "orders"), data);
+    const nextAvailableTable = getNextAvailableTable();
     setCurrentOrder([]);
-    setEditingId(null);
     setNewOrderMode(false);
     setOrderChanged(false);
     setMealSearch("");
@@ -343,11 +341,20 @@ function CashierApp({ menu, categories }) {
 
   const cancelEdit = () => {
     setCurrentOrder([]);
-    setEditingId(null);
     setNewOrderMode(false);
     setOrderChanged(false);
     setMealSearch("");
   };
+
+  const createEditingState = (order) => ({
+    table: order.table,
+    currentOrder: order.items || [],
+    orderChanged: false,
+    mealSearch: "",
+    showCategories: false,
+    collapsedCategoryIds: {},
+    menuCategoryOrder: [],
+  });
 
   const startEditOrder = (order) => {
     if (
@@ -361,12 +368,10 @@ function CashierApp({ menu, categories }) {
       return;
     }
 
-    setEditingId(order.id);
-    setCurrentOrder(order.items || []);
-    setTable(order.table);
-    setNewOrderMode(true);
-    setOrderChanged(false);
-    setMealSearch("");
+    setEditingOrders((previous) => ({
+      ...previous,
+      [order.id]: previous[order.id] || createEditingState(order),
+    }));
     setTimeout(() => editRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
 
@@ -383,19 +388,6 @@ function CashierApp({ menu, categories }) {
         { mealId, meal: mealObj.name, notes: "", qty: 1, price: mealObj.price ?? null },
       ];
     });
-  };
-
-  const deleteWholeOrder = () => {
-    if (
-      editingId &&
-      window.confirm("Oletko varma että haluat poistaa koko tilauksen? Tämä poistaa sen pysyvästi.")
-    ) {
-      remove(ref(db, `orders/${editingId}`));
-      setCurrentOrder([]);
-      setEditingId(null);
-      setNewOrderMode(false);
-      setOrderChanged(false);
-    }
   };
 
   const closeTable = (order) => {
@@ -451,6 +443,7 @@ function CashierApp({ menu, categories }) {
   };
 
   const normalizedMealSearch = mealSearch.trim().toLowerCase();
+  const hasOpenEdits = Object.keys(editingOrders).length > 0;
   const categoryNameMap = new Map(
     categories.map((category) => [category.id, category.name.toLowerCase()])
   );
@@ -469,6 +462,492 @@ function CashierApp({ menu, categories }) {
   );
   const uncategorizedMenuItems = filteredMenu;
 
+  const updateEditingOrderState = (orderId, updater) => {
+    setEditingOrders((previous) => {
+      const existing = previous[orderId];
+      if (!existing) return previous;
+      const nextState = typeof updater === "function" ? updater(existing) : { ...existing, ...updater };
+      return {
+        ...previous,
+        [orderId]: nextState,
+      };
+    });
+  };
+
+  const cancelEditingOrder = (orderId) => {
+    setEditingOrders((previous) => {
+      const next = { ...previous };
+      delete next[orderId];
+      return next;
+    });
+  };
+
+  const saveEditingOrder = (orderId) => {
+    const editState = editingOrders[orderId];
+    if (!editState) return;
+    if (editState.currentOrder.length === 0) {
+      alert("Tilauksessa ei ole annoksia!");
+      return;
+    }
+
+    const existingOrder = orders.find((order) => order.id === orderId);
+    if (!existingOrder) return;
+
+    const baselineItems =
+      existingOrder.updated && Array.isArray(existingOrder.editBaseItems)
+        ? existingOrder.editBaseItems
+        : existingOrder.items || [];
+    const editSummary = summarizeOrderChanges(baselineItems, editState.currentOrder);
+    const hasChanges = hasOrderChanges(editSummary);
+
+    const data = {
+      table: editState.table,
+      items: editState.currentOrder,
+      status: existingOrder.status || "waiting",
+      updated: hasChanges,
+      editSummary: hasChanges ? editSummary : null,
+      editBaseItems: hasChanges ? baselineItems : null,
+      createdAt: existingOrder.createdAt,
+      orderIndex: existingOrder.orderIndex,
+    };
+
+    update(ref(db, `orders/${orderId}`), data);
+    cancelEditingOrder(orderId);
+  };
+
+  const deleteEditingOrder = (orderId) => {
+    if (window.confirm("Oletko varma että haluat poistaa koko tilauksen? Tämä poistaa sen pysyvästi.")) {
+      remove(ref(db, `orders/${orderId}`));
+      cancelEditingOrder(orderId);
+    }
+  };
+
+  const toggleEditingCategoryCollapsed = (orderId, categoryId) => {
+    updateEditingOrderState(orderId, (existing) => ({
+      ...existing,
+      collapsedCategoryIds: {
+        ...existing.collapsedCategoryIds,
+        [categoryId]: !existing.collapsedCategoryIds[categoryId],
+      },
+    }));
+  };
+
+  const toggleEditingShowCategories = (orderId) => {
+    updateEditingOrderState(orderId, (existing) => ({
+      ...existing,
+      showCategories: !existing.showCategories,
+    }));
+  };
+
+  const onEditingMenuCategoryDragEnd = (orderId, result) => {
+    if (!result.destination) return;
+    updateEditingOrderState(orderId, (existing) => {
+      const nextOrder = Array.from(existing.menuCategoryOrder);
+      const [removed] = nextOrder.splice(result.source.index, 1);
+      nextOrder.splice(result.destination.index, 0, removed);
+      return { ...existing, menuCategoryOrder: nextOrder };
+    });
+  };
+
+  const addToEditingOrderFromMenu = (orderId, mealId) => {
+    const mealObj = menu.find((meal) => meal.id === mealId);
+    if (!mealObj) return;
+    updateEditingOrderState(orderId, (existing) => ({
+      ...existing,
+      orderChanged: true,
+      currentOrder: [
+        ...existing.currentOrder,
+        { mealId, meal: mealObj.name, notes: "", qty: 1, price: mealObj.price ?? null },
+      ],
+    }));
+  };
+
+  const getEditingMenuData = (editState) => {
+    const normalizedSearch = editState.mealSearch.trim().toLowerCase();
+    const categoryNameMapLocal = new Map(
+      categories.map((category) => [category.id, category.name.toLowerCase()])
+    );
+    const filtered = normalizedSearch
+      ? menu.filter((meal) => {
+          const mealNameMatch = meal.name.toLowerCase().includes(normalizedSearch);
+          const mealCategoryName =
+            categoryNameMapLocal.get(meal.categoryId || "") ||
+            (normalizeCategoryId(meal.categoryId) === UNCATEGORIZED_ID ? UNCATEGORIZED_LABEL.toLowerCase() : "");
+          return mealNameMatch || mealCategoryName.includes(normalizedSearch);
+        })
+      : menu;
+
+    const availableCategoryIds = [...categories.map((category) => category.id), UNCATEGORIZED_ID];
+    const filteredOrder = (editState.menuCategoryOrder || []).filter((id) => availableCategoryIds.includes(id));
+    const effectiveOrder = [...filteredOrder, ...availableCategoryIds.filter((id) => !filteredOrder.includes(id))];
+    const groups = buildCategoryGroups(filtered, categories, effectiveOrder).filter(
+      (category) => category.items.length > 0 || !normalizedSearch
+    );
+
+    return { normalizedSearch, filtered, groups };
+  };
+
+  const renderCashierMealPicker = () => (
+    <>
+      <div className="field-group" style={{ marginBottom: 16 }}>
+        <label>Hae annosta tai kategoriaa</label>
+        <input
+          className="input"
+          type="text"
+          placeholder="Kirjoita annoksen tai kategorian nimi..."
+          value={mealSearch}
+          onChange={(event) => setMealSearch(event.target.value)}
+        />
+      </div>
+      <div className="controls-row" style={{ marginBottom: 16 }}>
+        <button className="btn btn-secondary btn-small" onClick={() => setShowCategories((current) => !current)}>
+          {showCategories ? "Piilota kategoriat" : "Näytä kategoriat"}
+        </button>
+      </div>
+
+      {showCategories ? (
+        <DragDropContext onDragEnd={onMenuCategoryDragEnd}>
+          <Droppable droppableId="cashier-menu-categories" direction="vertical" type="MENU_CATEGORY">
+            {(provided) => (
+              <div ref={provided.innerRef} {...provided.droppableProps} className="content-stack">
+                {menuGroups.map((category, index) => (
+                  <Draggable key={category.id} draggableId={category.id} index={index}>
+                    {(draggableProvided) => (
+                      <div
+                        ref={draggableProvided.innerRef}
+                        {...draggableProvided.draggableProps}
+                        className="panel menu-category-panel"
+                        style={draggableProvided.draggableProps.style}
+                      >
+                        <div
+                          className="menu-category-header menu-category-drag-handle"
+                          {...draggableProvided.dragHandleProps}
+                        >
+                          <h3 className="panel-title">{category.name}</h3>
+                          <div className="controls-row">
+                            <span className="menu-category-hint">{CATEGORY_DRAG_HINT}</span>
+                            <button
+                              className="btn btn-secondary btn-small"
+                              onClick={() => toggleCategoryCollapsed(category.id)}
+                            >
+                              {collapsedCategoryIds[category.id] ? "Näytä kategoria" : "Piilota kategoria"}
+                            </button>
+                          </div>
+                        </div>
+                        {!collapsedCategoryIds[category.id] ? (
+                          <div className="product-grid">
+                            {category.items.map((meal) => (
+                              <div
+                                key={meal.id}
+                                className="product-card clickable"
+                                onClick={() => addToOrderFromMenu(meal.id)}
+                              >
+                                {meal.image ? (
+                                  <img className="product-image" src={meal.image} alt={meal.name} />
+                                ) : (
+                                  <div className="product-placeholder" />
+                                )}
+                                <div className="product-name">{meal.name}</div>
+                                {meal.price != null ? <div className="product-price">{meal.price}€</div> : null}
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {normalizedMealSearch && menuGroups.length === 0 ? (
+                  <p className="muted">Haulla ei löytynyt annoksia.</p>
+                ) : null}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+      ) : (
+        <div className="panel menu-category-panel">
+          <div className="product-grid">
+            {uncategorizedMenuItems.map((meal) => (
+              <div
+                key={meal.id}
+                className="product-card clickable"
+                onClick={() => addToOrderFromMenu(meal.id)}
+              >
+                {meal.image ? (
+                  <img className="product-image" src={meal.image} alt={meal.name} />
+                ) : (
+                  <div className="product-placeholder" />
+                )}
+                <div className="product-name">{meal.name}</div>
+                {meal.price != null ? <div className="product-price">{meal.price}€</div> : null}
+              </div>
+            ))}
+          </div>
+          {normalizedMealSearch && uncategorizedMenuItems.length === 0 ? (
+            <p className="muted" style={{ marginTop: 12 }}>Haulla ei löytynyt annoksia.</p>
+          ) : null}
+        </div>
+      )}
+    </>
+  );
+
+  const renderEditingMealPicker = (orderId, editState) => {
+    const { normalizedSearch, filtered, groups } = getEditingMenuData(editState);
+
+    return (
+      <>
+        <div className="field-group" style={{ marginBottom: 16 }}>
+          <label>Hae annosta tai kategoriaa</label>
+          <input
+            className="input"
+            type="text"
+            placeholder="Kirjoita annoksen tai kategorian nimi..."
+            value={editState.mealSearch}
+            onChange={(event) =>
+              updateEditingOrderState(orderId, {
+                ...editState,
+                mealSearch: event.target.value,
+              })
+            }
+          />
+        </div>
+        <div className="controls-row" style={{ marginBottom: 16 }}>
+          <button className="btn btn-secondary btn-small" onClick={() => toggleEditingShowCategories(orderId)}>
+            {editState.showCategories ? "Piilota kategoriat" : "Näytä kategoriat"}
+          </button>
+        </div>
+
+        {editState.showCategories ? (
+          <DragDropContext onDragEnd={(result) => onEditingMenuCategoryDragEnd(orderId, result)}>
+            <Droppable droppableId={`cashier-menu-categories-${orderId}`} direction="vertical" type="MENU_CATEGORY">
+              {(provided) => (
+                <div ref={provided.innerRef} {...provided.droppableProps} className="content-stack">
+                  {groups.map((category, index) => (
+                    <Draggable key={category.id} draggableId={`${orderId}-${category.id}`} index={index}>
+                      {(draggableProvided) => (
+                        <div
+                          ref={draggableProvided.innerRef}
+                          {...draggableProvided.draggableProps}
+                          className="panel menu-category-panel"
+                          style={draggableProvided.draggableProps.style}
+                        >
+                          <div className="menu-category-header menu-category-drag-handle" {...draggableProvided.dragHandleProps}>
+                            <h3 className="panel-title">{category.name}</h3>
+                            <div className="controls-row">
+                              <span className="menu-category-hint">{CATEGORY_DRAG_HINT}</span>
+                              <button
+                                className="btn btn-secondary btn-small"
+                                onClick={() => toggleEditingCategoryCollapsed(orderId, category.id)}
+                              >
+                                {editState.collapsedCategoryIds?.[category.id] ? "Näytä kategoria" : "Piilota kategoria"}
+                              </button>
+                            </div>
+                          </div>
+                          {!editState.collapsedCategoryIds?.[category.id] ? (
+                            <div className="product-grid">
+                              {category.items.map((meal) => (
+                                <div
+                                  key={meal.id}
+                                  className="product-card clickable"
+                                  onClick={() => addToEditingOrderFromMenu(orderId, meal.id)}
+                                >
+                                  {meal.image ? (
+                                    <img className="product-image" src={meal.image} alt={meal.name} />
+                                  ) : (
+                                    <div className="product-placeholder" />
+                                  )}
+                                  <div className="product-name">{meal.name}</div>
+                                  {meal.price != null ? <div className="product-price">{meal.price}€</div> : null}
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {normalizedSearch && groups.length === 0 ? <p className="muted">Haulla ei löytynyt annoksia.</p> : null}
+                  {provided.placeholder}
+                </div>
+              )}
+            </Droppable>
+          </DragDropContext>
+        ) : (
+          <div className="panel menu-category-panel">
+            <div className="product-grid">
+              {filtered.map((meal) => (
+                <div key={meal.id} className="product-card clickable" onClick={() => addToEditingOrderFromMenu(orderId, meal.id)}>
+                  {meal.image ? <img className="product-image" src={meal.image} alt={meal.name} /> : <div className="product-placeholder" />}
+                  <div className="product-name">{meal.name}</div>
+                  {meal.price != null ? <div className="product-price">{meal.price}€</div> : null}
+                </div>
+              ))}
+            </div>
+            {normalizedSearch && filtered.length === 0 ? <p className="muted" style={{ marginTop: 12 }}>Haulla ei löytynyt annoksia.</p> : null}
+          </div>
+        )}
+      </>
+    );
+  };
+
+  const renderCashierOrderEditor = (isInline = false) => (
+    <div ref={isInline ? editRef : undefined}>
+      {!isInline ? (
+        <h2 className="panel-title row">
+          <span className="panel-title-accent">Uusi tilaus</span>
+          <span className="panel-title-muted">Pöytä {table}</span>
+        </h2>
+      ) : null}
+
+      {renderCashierMealPicker()}
+
+      <div className="panel" style={{ marginTop: 18, padding: 16 }}>
+        <h3 className="panel-title">Tilauksen annokset</h3>
+        <div className="order-item-list">
+          {currentOrder.map((item, index) => (
+            <div key={index} className="order-item-row">
+              <div className="order-item-main">
+                <span>{item.meal} x</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={item.qty}
+                  onChange={(event) => {
+                    const qty = parseInt(event.target.value, 10) || 1;
+                    setCurrentOrder((previous) => {
+                      setOrderChanged(true);
+                      return previous.map((existing, itemIndex) =>
+                        itemIndex === index ? { ...existing, qty } : existing
+                      );
+                    });
+                  }}
+                />
+              </div>
+              <input
+                className="input order-item-notes"
+                type="text"
+                placeholder="Lisätietoa..."
+                value={item.notes}
+                onChange={(event) => {
+                  const notes = event.target.value;
+                  setCurrentOrder((previous) => {
+                    setOrderChanged(true);
+                    return previous.map((existing, itemIndex) =>
+                      itemIndex === index ? { ...existing, notes } : existing
+                    );
+                  });
+                }}
+              />
+              <button
+                className="btn btn-danger btn-small"
+                onClick={() =>
+                  setCurrentOrder((previous) => {
+                    setOrderChanged(true);
+                    return previous.filter((_, itemIndex) => itemIndex !== index);
+                  })
+                }
+              >
+                Poista
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="controls-row" style={{ marginTop: 18 }}>
+        <button className="btn btn-primary" onClick={saveOrder} disabled={!orderChanged}>
+          Tallenna tilaus
+        </button>
+        <button className="btn btn-secondary" onClick={cancelEdit}>
+          Peruuta
+        </button>
+      </div>
+    </div>
+  );
+
+  const renderEditingOrderEditor = (orderId, editState) => (
+    <div ref={editRef}>
+      {renderEditingMealPicker(orderId, editState)}
+
+      <div className="panel" style={{ marginTop: 18, padding: 16 }}>
+        <h3 className="panel-title">Tilauksen annokset</h3>
+        <div className="order-item-list">
+          {editState.currentOrder.map((item, index) => (
+            <div key={index} className="order-item-row">
+              <div className="order-item-main">
+                <span>{item.meal} x</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={item.qty}
+                  onChange={(event) => {
+                    const qty = parseInt(event.target.value, 10) || 1;
+                    updateEditingOrderState(orderId, (existing) => ({
+                      ...existing,
+                      orderChanged: true,
+                      currentOrder: existing.currentOrder.map((existingItem, itemIndex) =>
+                        itemIndex === index ? { ...existingItem, qty } : existingItem
+                      ),
+                    }));
+                  }}
+                />
+              </div>
+              <input
+                className="input order-item-notes"
+                type="text"
+                placeholder="Lisätietoa..."
+                value={item.notes}
+                onChange={(event) => {
+                  const notes = event.target.value;
+                  updateEditingOrderState(orderId, (existing) => ({
+                    ...existing,
+                    orderChanged: true,
+                    currentOrder: existing.currentOrder.map((existingItem, itemIndex) =>
+                      itemIndex === index ? { ...existingItem, notes } : existingItem
+                    ),
+                  }));
+                }}
+              />
+              <button
+                className="btn btn-danger btn-small"
+                onClick={() =>
+                  updateEditingOrderState(orderId, (existing) => ({
+                    ...existing,
+                    orderChanged: true,
+                    currentOrder: existing.currentOrder.filter((_, itemIndex) => itemIndex !== index),
+                  }))
+                }
+              >
+                Poista
+              </button>
+            </div>
+          ))}
+          {editState.currentOrder.length > 0 ? (
+            <div className="order-item-row" style={{ marginTop: 8 }}>
+              <div className="order-item-main" />
+              <div className="order-item-notes" />
+              <button className="btn btn-danger btn-small" onClick={() => deleteEditingOrder(orderId)}>
+                Poista koko tilaus
+              </button>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      <div className="controls-row" style={{ marginTop: 18 }}>
+        <button className="btn btn-primary" onClick={() => saveEditingOrder(orderId)} disabled={!editState.orderChanged}>
+          Tallenna tilaus
+        </button>
+        <button className="btn btn-secondary" onClick={() => cancelEditingOrder(orderId)}>
+          Peruuta
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="screen">
       <ScreenHeader
@@ -477,7 +956,7 @@ function CashierApp({ menu, categories }) {
       />
 
       <div className="content-stack">
-        {!newOrderMode && !editingId ? (
+        {!newOrderMode && !hasOpenEdits ? (
           <div className="panel">
             <div className="controls-row">
               <div className="field-group">
@@ -497,185 +976,9 @@ function CashierApp({ menu, categories }) {
           </div>
         ) : null}
 
-        {newOrderMode || editingId ? (
+        {newOrderMode ? (
           <div ref={editRef} className="panel">
-            <h2 className="panel-title row">
-              <span className="panel-title-accent">{editingId ? "Muokkaa tilausta" : "Uusi tilaus"}</span>
-              <span className="panel-title-muted">Pöytä {table}</span>
-            </h2>
-
-            <div className="field-group" style={{ marginBottom: 16 }}>
-              <label>Hae annosta tai kategoriaa</label>
-              <input
-                className="input"
-                type="text"
-                placeholder="Kirjoita annoksen tai kategorian nimi..."
-                value={mealSearch}
-                onChange={(event) => setMealSearch(event.target.value)}
-              />
-            </div>
-            <div className="controls-row" style={{ marginBottom: 16 }}>
-              <button className="btn btn-secondary btn-small" onClick={() => setShowCategories((current) => !current)}>
-                {showCategories ? "Piilota kategoriat" : "Näytä kategoriat"}
-              </button>
-            </div>
-
-            {showCategories ? (
-              <DragDropContext onDragEnd={onMenuCategoryDragEnd}>
-                <Droppable droppableId="cashier-menu-categories" direction="vertical" type="MENU_CATEGORY">
-                  {(provided) => (
-                    <div ref={provided.innerRef} {...provided.droppableProps} className="content-stack">
-                      {menuGroups.map((category, index) => (
-                        <Draggable key={category.id} draggableId={category.id} index={index}>
-                          {(draggableProvided) => (
-                            <div
-                              ref={draggableProvided.innerRef}
-                              {...draggableProvided.draggableProps}
-                              className="panel menu-category-panel"
-                              style={draggableProvided.draggableProps.style}
-                            >
-                              <div
-                                className="menu-category-header menu-category-drag-handle"
-                                {...draggableProvided.dragHandleProps}
-                              >
-                                <h3 className="panel-title">{category.name}</h3>
-                                <div className="controls-row">
-                                  <span className="menu-category-hint">{CATEGORY_DRAG_HINT}</span>
-                                  <button
-                                    className="btn btn-secondary btn-small"
-                                    onClick={() => toggleCategoryCollapsed(category.id)}
-                                  >
-                                    {collapsedCategoryIds[category.id] ? "Näytä kategoria" : "Piilota kategoria"}
-                                  </button>
-                                </div>
-                              </div>
-                              {!collapsedCategoryIds[category.id] ? (
-                                <div className="product-grid">
-                                  {category.items.map((meal) => (
-                                    <div
-                                      key={meal.id}
-                                      className="product-card clickable"
-                                      onClick={() => addToOrderFromMenu(meal.id)}
-                                    >
-                                      {meal.image ? (
-                                        <img className="product-image" src={meal.image} alt={meal.name} />
-                                      ) : (
-                                        <div className="product-placeholder" />
-                                      )}
-                                      <div className="product-name">{meal.name}</div>
-                                      {meal.price != null ? <div className="product-price">{meal.price}€</div> : null}
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
-                      {normalizedMealSearch && menuGroups.length === 0 ? (
-                        <p className="muted">Haulla ei löytynyt annoksia.</p>
-                      ) : null}
-                      {provided.placeholder}
-                    </div>
-                  )}
-                </Droppable>
-              </DragDropContext>
-            ) : (
-              <div className="panel menu-category-panel">
-                <div className="product-grid">
-                  {uncategorizedMenuItems.map((meal) => (
-                    <div
-                      key={meal.id}
-                      className="product-card clickable"
-                      onClick={() => addToOrderFromMenu(meal.id)}
-                    >
-                      {meal.image ? (
-                        <img className="product-image" src={meal.image} alt={meal.name} />
-                      ) : (
-                        <div className="product-placeholder" />
-                      )}
-                      <div className="product-name">{meal.name}</div>
-                      {meal.price != null ? <div className="product-price">{meal.price}€</div> : null}
-                    </div>
-                  ))}
-                </div>
-                {normalizedMealSearch && uncategorizedMenuItems.length === 0 ? (
-                  <p className="muted" style={{ marginTop: 12 }}>Haulla ei löytynyt annoksia.</p>
-                ) : null}
-              </div>
-            )}
-
-            <div className="panel" style={{ marginTop: 18, padding: 16 }}>
-              <h3 className="panel-title">Tilauksen annokset</h3>
-              <div className="order-item-list">
-                {currentOrder.map((item, index) => (
-                  <div key={index} className="order-item-row">
-                    <div className="order-item-main">
-                      <span>{item.meal} x</span>
-                      <input
-                        className="input"
-                        type="number"
-                        min={1}
-                        value={item.qty}
-                        onChange={(event) => {
-                          const qty = parseInt(event.target.value, 10) || 1;
-                          setCurrentOrder((previous) => {
-                            setOrderChanged(true);
-                            return previous.map((existing, itemIndex) =>
-                              itemIndex === index ? { ...existing, qty } : existing
-                            );
-                          });
-                        }}
-                      />
-                    </div>
-                    <input
-                      className="input order-item-notes"
-                      type="text"
-                      placeholder="Lisätietoa..."
-                      value={item.notes}
-                      onChange={(event) => {
-                        const notes = event.target.value;
-                        setCurrentOrder((previous) => {
-                          setOrderChanged(true);
-                          return previous.map((existing, itemIndex) =>
-                            itemIndex === index ? { ...existing, notes } : existing
-                          );
-                        });
-                      }}
-                    />
-                    <button
-                      className="btn btn-danger btn-small"
-                      onClick={() =>
-                        setCurrentOrder((previous) => {
-                          setOrderChanged(true);
-                          return previous.filter((_, itemIndex) => itemIndex !== index);
-                        })
-                      }
-                    >
-                      Poista
-                    </button>
-                  </div>
-                ))}
-                {editingId && currentOrder.length > 0 ? (
-                  <div className="order-item-row" style={{ marginTop: 8 }}>
-                    <div className="order-item-main" />
-                    <div className="order-item-notes" />
-                    <button className="btn btn-danger btn-small" onClick={deleteWholeOrder}>
-                      Poista koko tilaus
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <div className="controls-row" style={{ marginTop: 18 }}>
-              <button className="btn btn-primary" onClick={saveOrder} disabled={!orderChanged}>
-                Tallenna tilaus
-              </button>
-              <button className="btn btn-secondary" onClick={cancelEdit}>
-                Peruuta
-              </button>
-            </div>
+            {renderCashierOrderEditor(false)}
           </div>
         ) : null}
 
@@ -705,6 +1008,7 @@ function CashierApp({ menu, categories }) {
                             <div className="order-list">
                               {visibleOrders.map((order) => {
                                 const groupedItems = groupOrderItems(order.items);
+                                const editState = editingOrders[order.id];
 
                                 return (
                                   <div
@@ -712,58 +1016,73 @@ function CashierApp({ menu, categories }) {
                                     className={`order-card cashier-order-card ${status}`}
                                     style={{ background: statusColors[status] || "#fff" }}
                                   >
-                                    <div className="order-card-head">
-                                      <div className="cashier-order-main">
-                                        <span className="order-table">Pöytä {order.table}</span>
-                                        <span className="cashier-order-badge">{groupedItems.length} riviä</span>
-                                      </div>
-                                      <span className="order-time cashier-order-time">
-                                        {new Date(order.createdAt).toLocaleTimeString([], {
-                                          hour: "2-digit",
-                                          minute: "2-digit",
-                                        })}
-                                      </span>
-                                    </div>
-
-                                    <div className="cashier-items">
-                                      {groupedItems.map((item, itemIndex) => (
-                                        <div key={itemIndex} className="cashier-item-row">
-                                          <span className="cashier-item-qty">{item.qty}x</span>
-                                          <span className="cashier-item-name">{item.meal}</span>
-                                          {item.notes ? <span className="cashier-item-notes">{item.notes}</span> : null}
+                                    {!editState ? (
+                                      <>
+                                        <div className="order-card-head">
+                                          <div className="cashier-order-main">
+                                            <span className="order-table">Pöytä {order.table}</span>
+                                            <span className="cashier-order-badge">{groupedItems.length} riviä</span>
+                                          </div>
+                                          <span className="order-time cashier-order-time">
+                                            {new Date(order.createdAt).toLocaleTimeString([], {
+                                              hour: "2-digit",
+                                              minute: "2-digit",
+                                            })}
+                                          </span>
                                         </div>
-                                      ))}
-                                    </div>
-                                    <div className="cashier-order-actions">
-                                      {["waiting", "cooking", "ready"].includes(status) ? (
-                                        <button
-                                          className="btn btn-primary btn-small"
-                                          onClick={() => startEditOrder(order)}
-                                        >
-                                          Muokkaa
-                                        </button>
-                                      ) : null}
-                                      {status === "ready" ? (
-                                        <button
-                                          className="btn btn-success btn-small"
-                                          onClick={() => {
-                                            if (window.confirm("Haluatko merkitä tilauksen viety pöytään?")) {
-                                              update(ref(db, `orders/${order.id}`), { status: "poydassa" });
-                                            }
-                                          }}
-                                        >
-                                          Viety pöytään
-                                        </button>
-                                      ) : null}
-                                      {status === "poydassa" ? (
-                                        <button
-                                          className="btn btn-danger btn-small"
-                                          onClick={() => closeTable(order)}
-                                        >
-                                          Sulje pöytä
-                                        </button>
-                                      ) : null}
-                                    </div>
+
+                                        <div className="cashier-items">
+                                          {groupedItems.map((item, itemIndex) => (
+                                            <div key={itemIndex} className="cashier-item-row">
+                                              <span className="cashier-item-qty">{item.qty}x</span>
+                                              <span className="cashier-item-name">{item.meal}</span>
+                                              {item.notes ? <span className="cashier-item-notes">{item.notes}</span> : null}
+                                            </div>
+                                          ))}
+                                        </div>
+                                        <div className="cashier-order-actions">
+                                          {["waiting", "cooking", "ready"].includes(status) ? (
+                                            <button
+                                              className="btn btn-primary btn-small"
+                                              onClick={() => startEditOrder(order)}
+                                            >
+                                              Muokkaa
+                                            </button>
+                                          ) : null}
+                                          {status === "ready" ? (
+                                            <button
+                                              className="btn btn-success btn-small"
+                                              onClick={() => {
+                                                if (window.confirm("Haluatko merkitä tilauksen viety pöytään?")) {
+                                                  update(ref(db, `orders/${order.id}`), { status: "poydassa" });
+                                                }
+                                              }}
+                                            >
+                                              Viety pöytään
+                                            </button>
+                                          ) : null}
+                                          {status === "poydassa" ? (
+                                            <button
+                                              className="btn btn-danger btn-small"
+                                              onClick={() => closeTable(order)}
+                                            >
+                                              Sulje pöytä
+                                            </button>
+                                          ) : null}
+                                        </div>
+                                      </>
+                                    ) : null}
+                                    {editState ? (
+                                      <div className="cashier-inline-editor">
+                                        <div className="panel cashier-inline-editor-panel">
+                                          <h3 className="panel-title row">
+                                            <span className="panel-title-accent">Muokkaa tilausta</span>
+                                            <span className="panel-title-muted">Pöytä {editState.table}</span>
+                                          </h3>
+                                          {renderEditingOrderEditor(order.id, editState)}
+                                        </div>
+                                      </div>
+                                    ) : null}
                                   </div>
                                 );
                               })}
@@ -890,6 +1209,7 @@ function KitchenApp() {
                                       update(ref(db, `orders/${order.id}`), {
                                         updated: false,
                                         editSummary: null,
+                                        editBaseItems: null,
                                       })
                                     }
                                   >
