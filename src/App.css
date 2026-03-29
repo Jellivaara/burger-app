@@ -858,14 +858,91 @@
 
 .sales-event {
   flex-direction: column;
+  padding: 16px;
 }
 
 .sales-event-head {
-  display: flex;
+  margin-bottom: 10px;
+}
+
+.sales-event-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
   width: 100%;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
+}
+
+.sales-event-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sales-event-item {
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.sales-event-item-name {
+  grid-column: 2;
+}
+
+.sales-event-item-qty {
+  min-width: 34px;
+}
+
+.sales-event-item-notes {
+  grid-column: 2;
+}
+
+.sales-event-times {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  text-align: right;
+}
+
+.sales-time-pill {
+  min-width: 160px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sales-time-pill.opened {
+  background: rgba(29, 111, 184, 0.12);
+}
+
+.sales-time-pill.closed {
+  background: rgba(63, 141, 82, 0.14);
+}
+
+.sales-time-label {
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #6a5142;
+}
+
+.sales-time-value {
+  font-size: 18px;
+  font-weight: 900;
+  color: #2f1b11;
+}
+
+@media (max-width: 720px) {
+  .sales-event-body {
+    grid-template-columns: 1fr;
+  }
+
+  .sales-event-times {
+    align-items: stretch;
+    text-align: left;
+  }
 }
 
 .login-shell {

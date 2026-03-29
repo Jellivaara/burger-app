@@ -1626,12 +1626,13 @@ function AdminApp({ menu, categories }) {
           ? Number(item.price) || 0
           : menuPriceMap.get(item.mealId) || 0;
       const lineTotal = unitPrice * quantity;
-      const key = `${item.mealId || item.meal}___${item.meal}`;
+      const key = `${item.mealId || item.meal}___${item.meal}___${item.notes || ""}`;
 
       todaysRevenue += lineTotal;
       if (!salesSummaryMap[key]) {
         salesSummaryMap[key] = {
           meal: item.meal,
+          notes: item.notes || "",
           qty: 0,
           revenue: 0,
         };
@@ -2054,9 +2055,10 @@ function AdminApp({ menu, categories }) {
             {salesSummary.length > 0 ? (
               <div className="sales-list">
                 {salesSummary.map((item) => (
-                  <div key={item.meal} className="sales-item">
+                  <div key={`${item.meal}___${item.notes || ""}`} className="sales-item">
                     <div>
                       <div className="sales-item-name">{item.meal}</div>
+                      {item.notes ? <div className="muted">Lisätieto: {item.notes}</div> : null}
                       <div className="muted">{item.qty} kpl</div>
                     </div>
                     <div className="sales-item-value">{item.revenue.toFixed(2)}€</div>
@@ -2073,22 +2075,50 @@ function AdminApp({ menu, categories }) {
             {todaysClosedOrders.length > 0 ? (
               <div className="sales-events">
                 {todaysClosedOrders.map((order) => (
-                  <div key={order.id} className="sales-event">
-                    <div className="sales-event-head">
-                      <span className="order-table">Pöytä {order.table}</span>
-                      <span className="order-time">
-                        {new Date(order.closedAt || order.createdAt).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          hour12: false,
-                        })}
-                      </span>
-                    </div>
-                    {(order.items || []).map((item, index) => (
-                      <div key={index}>
-                        {item.meal} x{item.qty}
+                  <div key={order.id} className="sales-event order-card menneet">
+                    <div className="order-card-head sales-event-head">
+                      <div className="cashier-order-main">
+                        <span className="order-table">Pöytä {order.table}</span>
+                        <span className="cashier-order-badge">
+                          {groupOrderItems(order.items || []).length} riviä
+                        </span>
                       </div>
-                    ))}
+                    </div>
+                    <div className="sales-event-body">
+                      <div className="sales-event-items">
+                        {groupOrderItems(order.items || []).map((item, index) => (
+                          <div key={index} className="sales-event-item cashier-item-row">
+                            <span className="sales-event-item-qty cashier-item-qty">{item.qty}x</span>
+                            <span className="sales-event-item-name cashier-item-name">{item.meal}</span>
+                            {item.notes ? (
+                              <span className="sales-event-item-notes cashier-item-notes">{item.notes}</span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="sales-event-times">
+                        <div className="sales-time-pill opened">
+                          <span className="sales-time-label">Tilaus avattu</span>
+                          <span className="sales-time-value">
+                            {new Date(order.createdAt).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              hour12: false,
+                            })}
+                          </span>
+                        </div>
+                        <div className="sales-time-pill closed">
+                          <span className="sales-time-label">Pöytä suljettu</span>
+                          <span className="sales-time-value">
+                            {new Date(order.closedAt || order.createdAt).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              hour12: false,
+                            })}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
