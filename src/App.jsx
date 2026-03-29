@@ -781,6 +781,7 @@ function AdminApp({ menu, categories }) {
   const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [showMealForm, setShowMealForm] = useState(false);
   const [collapsedPanels, setCollapsedPanels] = useState({});
+  const [mealSearch, setMealSearch] = useState("");
   const [inlineEditingMealId, setInlineEditingMealId] = useState(null);
   const [inlineMealName, setInlineMealName] = useState("");
   const [inlineMealPrice, setInlineMealPrice] = useState("");
@@ -1039,6 +1040,20 @@ function AdminApp({ menu, categories }) {
   });
 
   const salesSummary = Object.values(salesSummaryMap).sort((left, right) => right.qty - left.qty);
+  const normalizedMealSearch = mealSearch.trim().toLowerCase();
+  const categoryNameMap = new Map(
+    categories.map((category) => [category.id, category.name.toLowerCase()])
+  );
+  const filteredMenu = normalizedMealSearch
+    ? menu.filter((meal) => {
+        const mealNameMatch = meal.name.toLowerCase().includes(normalizedMealSearch);
+        const mealCategoryName =
+          categoryNameMap.get(meal.categoryId || "") ||
+          (normalizeCategoryId(meal.categoryId) === UNCATEGORIZED_ID ? UNCATEGORIZED_LABEL.toLowerCase() : "");
+        const categoryMatch = mealCategoryName.includes(normalizedMealSearch);
+        return mealNameMatch || categoryMatch;
+      })
+    : menu;
 
   const togglePanelCollapsed = (panelId) => {
     setCollapsedPanels((previous) => ({
@@ -1162,8 +1177,20 @@ function AdminApp({ menu, categories }) {
             </div>
           </div>
         ) : null}
+        <div className="field-group" style={{ marginBottom: 16 }}>
+          <label>Hae annosta tai kategoriaa</label>
+          <input
+            className="input"
+            type="text"
+            placeholder="Kirjoita annoksen tai kategorian nimi..."
+            value={mealSearch}
+            onChange={(event) => setMealSearch(event.target.value)}
+          />
+        </div>
         <div className="content-stack">
-          {buildCategoryGroups(menu, categories, categories.map((category) => category.id), true).map((category) => (
+          {buildCategoryGroups(filteredMenu, categories, categories.map((category) => category.id), true)
+            .filter((category) => category.items.length > 0 || !normalizedMealSearch)
+            .map((category) => (
             <div key={category.id} className="admin-category-block">
               <div className="menu-category-header">
                 <h3 className="panel-title">{category.name}</h3>
@@ -1261,6 +1288,12 @@ function AdminApp({ menu, categories }) {
               </Droppable>
             </div>
           ))}
+          {normalizedMealSearch &&
+          buildCategoryGroups(filteredMenu, categories, categories.map((category) => category.id), true).every(
+            (category) => category.items.length === 0
+          ) ? (
+            <p className="muted">Haulla ei löytynyt annoksia.</p>
+          ) : null}
         </div>
       </div>
     ),
