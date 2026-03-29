@@ -91,6 +91,8 @@
 
 .screen-clock {
   flex-shrink: 0;
+  justify-self: end;
+  align-self: start;
   padding: 10px 14px;
   border: 1px solid rgba(127, 88, 63, 0.14);
   border-radius: 16px;
@@ -982,7 +984,7 @@
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 560px) {
   .screen-header {
     grid-template-columns: 1fr;
   }

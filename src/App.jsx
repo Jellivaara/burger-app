@@ -993,7 +993,7 @@ function CashierApp({ menu, categories }) {
     <div className="screen">
       <ScreenHeader
         title="Kassa"
-        subtitle="Luo, muokkaa ja seuraa pöytätilauksia samalla visuaalisella rytmillä kuin keittiössä."
+        subtitle="Luo, muokkaa ja seuraa pöytätilauksia."
       />
 
       <div className="content-stack">
@@ -1196,7 +1196,7 @@ function KitchenApp() {
     <div className="screen">
       <ScreenHeader
         title="Keittiö"
-        subtitle="Vedä tilaukset vaiheesta toiseen ja kuittaa muutokset heti valmistuksen aikana."
+        subtitle="Vedä tilaukset vaiheesta toiseen ja kuittaa muutokset."
       />
 
       <DragDropContext onDragEnd={onDragEnd}>
@@ -2135,7 +2135,7 @@ function AdminApp({ menu, categories }) {
     <div className="screen">
       <ScreenHeader
         title="Admin"
-        subtitle="Hallinnoi listaa samassa kortti- ja paneelikielessä kuin kassa ja keittiö, ilman että työnkulku muuttuu."
+        subtitle="Hallinnoi ruokalistaa ja päivän myyntiä"
       />
 
       <DragDropContext onDragEnd={onAdminDragEnd}>
