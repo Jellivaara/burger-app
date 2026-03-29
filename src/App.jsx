@@ -842,7 +842,10 @@ function KitchenApp() {
                   {...provided.droppableProps}
                   className={`status-column ${status}`}
                 >
-                  <h2 className="panel-title">{statusTitles[status]}</h2>
+                  <div className="kitchen-column-head">
+                    <h2 className="panel-title">{statusTitles[status]}</h2>
+                    <span className="kitchen-column-count">{grouped[status].length} tilausta</span>
+                  </div>
                   <div className="order-list">
                     {grouped[status]
                       .sort((left, right) => (left.orderIndex || 0) - (right.orderIndex || 0))
@@ -856,18 +859,21 @@ function KitchenApp() {
                               ref={draggableProvided.innerRef}
                               {...draggableProvided.draggableProps}
                               {...draggableProvided.dragHandleProps}
-                              className={`order-card ${status}${order.updated ? " is-updated" : ""}`}
+                              className={`order-card kitchen-order-card ${status}${order.updated ? " is-updated" : ""}`}
                               style={draggableProvided.draggableProps.style}
                             >
                               <div className="order-card-head">
-                                <span className="order-table">Pöytä {order.table}</span>
-                                <span className="order-time">
+                                <div className="kitchen-order-main">
+                                  <span className="order-table">Pöytä {order.table}</span>
+                                  <span className="kitchen-order-badge">{groupedItems.length} riviä</span>
+                                </div>
+                                <span className="order-time kitchen-order-time">
                                     {new Date(order.createdAt).toLocaleTimeString([], {
                                       hour: "2-digit",
                                       minute: "2-digit",
                                     })}
-                                  </span>
-                                </div>
+                                </span>
+                              </div>
 
                               {order.updated ? (
                                 <div className="warning">
@@ -921,15 +927,18 @@ function KitchenApp() {
                                 </div>
                               ) : null}
 
-                              {groupedItems.map((item, itemIndex) => (
-                                <div
-                                  key={itemIndex}
-                                  className={order.updated ? "updated-item-row" : undefined}
-                                >
-                                  {item.meal} x{item.qty}{" "}
-                                  {item.notes ? <em>({item.notes})</em> : null}
-                                </div>
-                              ))}
+                              <div className="kitchen-items">
+                                {groupedItems.map((item, itemIndex) => (
+                                  <div
+                                    key={itemIndex}
+                                    className={`kitchen-item-row${order.updated ? " updated-item-row" : ""}`}
+                                  >
+                                    <span className="kitchen-item-qty">{item.qty}x</span>
+                                    <span className="kitchen-item-name">{item.meal}</span>
+                                    {item.notes ? <span className="kitchen-item-notes">{item.notes}</span> : null}
+                                  </div>
+                                ))}
+                              </div>
                               </div>
                             )}
                           </Draggable>
