@@ -344,11 +344,14 @@
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 10px;
-  cursor: grab;
 }
 
 .menu-category-header .panel-title {
   margin-bottom: 0;
+}
+
+.menu-category-drag-handle {
+  cursor: grab;
 }
 
 .menu-category-hint {
@@ -431,12 +434,23 @@
   min-width: 0;
 }
 
+.admin-inline-form {
+  margin-bottom: 16px;
+}
+
 .admin-panel-shell {
   min-width: 0;
 }
 
-.admin-panel-handle {
+.admin-panel-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
   margin-bottom: 8px;
+}
+
+.admin-panel-handle {
   color: #8b6b59;
   font-size: 13px;
   font-weight: 700;
@@ -488,6 +502,69 @@
 
 .admin-draggable-card {
   cursor: grab;
+}
+
+.sales-total-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(240, 93, 63, 0.12), rgba(255, 209, 102, 0.18));
+  border: 1px solid rgba(127, 88, 63, 0.14);
+}
+
+.sales-total-label {
+  color: #7a5b4a;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sales-total-value {
+  margin: 6px 0;
+  font-size: 34px;
+  font-weight: 800;
+  color: #2f1b11;
+}
+
+.sales-list,
+.sales-events {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sales-item,
+.sales-event {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(127, 88, 63, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.sales-item-name {
+  font-weight: 800;
+  color: #2f1b11;
+}
+
+.sales-item-value {
+  font-weight: 800;
+  color: #3f8d52;
+}
+
+.sales-event {
+  flex-direction: column;
+}
+
+.sales-event-head {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .login-shell {
