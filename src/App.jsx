@@ -2428,7 +2428,7 @@ export default function App() {
           <div className="panel login-card">
             <ScreenHeader
               title="Admin"
-              subtitle="Kirjaudu sisään hallitaksesi ruokalistaa samalla käyttöliittymällä kuin muissa näkymissä."
+              subtitle="Kirjaudu sisään hallitaksesi ruokalistaa ja päivän tilauksia."
             />
             <div className="content-stack">
               <div className="field-group">
