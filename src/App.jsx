@@ -265,6 +265,7 @@ function CashierApp({ menu, categories }) {
   const [table, setTable] = useState("1");
   const [currentOrder, setCurrentOrder] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [pastOrders, setPastOrders] = useState([]);
   const [editingOrders, setEditingOrders] = useState({});
   const [newOrderMode, setNewOrderMode] = useState(false);
   const [orderChanged, setOrderChanged] = useState(false);
@@ -293,6 +294,13 @@ function CashierApp({ menu, categories }) {
       });
     });
   }, [newOrderMode]);
+
+  useEffect(() => {
+    onValue(ref(db, "pastOrders"), (snapshot) => {
+      const data = snapshot.val() || {};
+      setPastOrders(Object.entries(data).map(([id, value]) => ({ id, ...value })));
+    });
+  }, []);
 
   const inactiveStatuses = ["paid", "closed", "menneet"];
   const activeTables = orders
@@ -425,7 +433,11 @@ function CashierApp({ menu, categories }) {
     ) {
       // eslint-disable-next-line react-hooks/purity
       const closedAt = Date.now();
-      update(ref(db, `orders/${order.id}`), { status: "menneet", closedAt });
+      push(ref(db, "pastOrders"), {
+        ...order,
+        status: "menneet",
+        closedAt,
+      }).then(() => remove(ref(db, `orders/${order.id}`)));
       setTable((previous) => (previous === order.table ? "1" : previous));
     }
   };
@@ -434,9 +446,11 @@ function CashierApp({ menu, categories }) {
   const [categoryOrder, setCategoryOrder] = useState(categoriesDefault);
 
   const groupedOrders = categoryOrder.reduce((accumulator, status) => {
-    accumulator[status] = orders
-      .filter((order) => order.status === status)
-      .sort((left, right) => (left.orderIndex || 0) - (right.orderIndex || 0));
+    const sourceOrders =
+      status === "menneet"
+        ? [...pastOrders, ...orders.filter((order) => order.status === "menneet")]
+        : orders.filter((order) => order.status === status);
+    accumulator[status] = sourceOrders.sort((left, right) => (left.orderIndex || 0) - (right.orderIndex || 0));
     return accumulator;
   }, {});
 
@@ -1313,6 +1327,7 @@ function KitchenApp() {
 
 function AdminApp({ menu, categories }) {
   const [orders, setOrders] = useState([]);
+  const [pastOrders, setPastOrders] = useState([]);
   const [editing, setEditing] = useState(null);
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
@@ -1341,6 +1356,13 @@ function AdminApp({ menu, categories }) {
     onValue(ref(db, "orders"), (snapshot) => {
       const data = snapshot.val() || {};
       setOrders(Object.entries(data).map(([id, value]) => ({ id, ...value })));
+    });
+  }, []);
+
+  useEffect(() => {
+    onValue(ref(db, "pastOrders"), (snapshot) => {
+      const data = snapshot.val() || {};
+      setPastOrders(Object.entries(data).map(([id, value]) => ({ id, ...value })));
     });
   }, []);
 
@@ -1585,10 +1607,10 @@ function AdminApp({ menu, categories }) {
       return;
     }
 
-    await remove(ref(db, "orders"));
+    await Promise.all([remove(ref(db, "orders")), remove(ref(db, "pastOrders"))]);
   };
 
-  const todaysClosedOrders = orders
+  const todaysClosedOrders = [...pastOrders, ...orders.filter((order) => order.status === "menneet")]
     .filter((order) => order.status === "menneet" && isSameLocalDay(order.closedAt || order.createdAt))
     .sort((left, right) => (right.closedAt || right.createdAt || 0) - (left.closedAt || left.createdAt || 0));
 
