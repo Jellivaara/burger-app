@@ -227,6 +227,12 @@
   box-shadow: 0 12px 24px rgba(217, 71, 44, 0.22);
 }
 
+.btn-save {
+  background: linear-gradient(135deg, #3f8d52, #2f7240);
+  color: #fffdf8;
+  box-shadow: 0 12px 24px rgba(63, 141, 82, 0.24);
+}
+
 .btn-secondary {
   background: #eadfce;
   color: #52382a;
@@ -829,6 +835,37 @@
   color: #2f1b11;
 }
 
+.sales-total-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.sales-total-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(127, 88, 63, 0.12);
+}
+
+.sales-total-stat-label {
+  color: #7a5b4a;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.sales-total-stat-value {
+  color: #2f1b11;
+  font-size: 22px;
+  font-weight: 900;
+}
+
 .sales-list,
 .sales-events {
   display: flex;
@@ -991,6 +1028,10 @@
 }
 
 @media (max-width: 720px) {
+  .sales-total-stats {
+    grid-template-columns: 1fr;
+  }
+
   .topbar {
     padding: 12px 14px;
   }

@@ -32,7 +32,7 @@ const statusTitles = {
   cooking: "Työn alla",
   ready: "Valmis",
   poydassa: "Pöydässä",
-  menneet: "Menneet tilaukset",
+  menneet: "Suljetut Pöydät",
 };
 
 const TABLE_OPTIONS = [...Array(20)].map((_, index) => String(index + 1));
@@ -121,6 +121,22 @@ function hasOrderChanges(summary) {
 
 function normalizeCategoryId(categoryId) {
   return categoryId || UNCATEGORIZED_ID;
+}
+
+function getTimestamp() {
+  return Date.now();
+}
+
+async function archiveDeletedOrder(order, source = "") {
+  if (!order) {
+    return;
+  }
+
+  await push(ref(db, "deletedOrders"), {
+    ...order,
+    deletedAt: getTimestamp(),
+    deleteSource: source,
+  });
 }
 
 function isSameLocalDay(timestamp, reference = Date.now()) {
@@ -556,9 +572,11 @@ function CashierApp({ menu, categories }) {
     cancelEditingOrder(orderId);
   };
 
-  const deleteEditingOrder = (orderId) => {
+  const deleteEditingOrder = async (orderId) => {
     if (window.confirm("Oletko varma että haluat poistaa koko tilauksen? Tämä poistaa sen pysyvästi.")) {
-      remove(ref(db, `orders/${orderId}`));
+      const order = orders.find((candidate) => candidate.id === orderId);
+      await archiveDeletedOrder(order, "cashier");
+      await remove(ref(db, `orders/${orderId}`));
       cancelEditingOrder(orderId);
     }
   };
@@ -849,7 +867,7 @@ function CashierApp({ menu, categories }) {
           {currentOrder.map((item, index) => (
             <div key={index} className="order-item-row">
               <div className="order-item-main">
-                <span>{item.meal} x</span>
+                <span>{item.meal}</span>
                 <input
                   className="input"
                   type="number"
@@ -898,7 +916,7 @@ function CashierApp({ menu, categories }) {
       </div>
 
       <div className="controls-row" style={{ marginTop: 18 }}>
-        <button className="btn btn-primary" onClick={saveOrder} disabled={!orderChanged}>
+        <button className="btn btn-save" onClick={saveOrder} disabled={!orderChanged}>
           Tallenna tilaus
         </button>
         <button className="btn btn-secondary" onClick={cancelEdit}>
@@ -918,7 +936,7 @@ function CashierApp({ menu, categories }) {
           {editState.currentOrder.map((item, index) => (
             <div key={index} className="order-item-row">
               <div className="order-item-main">
-                <span>{item.meal} x</span>
+                <span>{item.meal}</span>
                 <input
                   className="input"
                   type="number"
@@ -979,7 +997,7 @@ function CashierApp({ menu, categories }) {
       </div>
 
       <div className="controls-row" style={{ marginTop: 18 }}>
-        <button className="btn btn-primary" onClick={() => saveEditingOrder(orderId)} disabled={!editState.orderChanged}>
+        <button className="btn btn-save" onClick={() => saveEditingOrder(orderId)} disabled={!editState.orderChanged}>
           Tallenna tilaus
         </button>
         <button className="btn btn-secondary" onClick={() => cancelEditingOrder(orderId)}>
@@ -1328,6 +1346,7 @@ function KitchenApp() {
 function AdminApp({ menu, categories }) {
   const [orders, setOrders] = useState([]);
   const [pastOrders, setPastOrders] = useState([]);
+  const [deletedOrders, setDeletedOrders] = useState([]);
   const [editing, setEditing] = useState(null);
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
@@ -1363,6 +1382,13 @@ function AdminApp({ menu, categories }) {
     onValue(ref(db, "pastOrders"), (snapshot) => {
       const data = snapshot.val() || {};
       setPastOrders(Object.entries(data).map(([id, value]) => ({ id, ...value })));
+    });
+  }, []);
+
+  useEffect(() => {
+    onValue(ref(db, "deletedOrders"), (snapshot) => {
+      const data = snapshot.val() || {};
+      setDeletedOrders(Object.entries(data).map(([id, value]) => ({ id, ...value })));
     });
   }, []);
 
@@ -1599,6 +1625,11 @@ function AdminApp({ menu, categories }) {
   };
 
   const endDay = async () => {
+    if (openOrders.length > 0) {
+      alert("Sulje kaikki avoimet pöydät ennen päivän lopettamista.");
+      return;
+    }
+
     if (
       !window.confirm(
         "Haluatko varmasti lopettaa päivän? Tämä tyhjentää kaikki tilaukset, vapauttaa pöydät ja nollaa päivän myynnin."
@@ -1607,12 +1638,78 @@ function AdminApp({ menu, categories }) {
       return;
     }
 
-    await Promise.all([remove(ref(db, "orders")), remove(ref(db, "pastOrders"))]);
+    await Promise.all([remove(ref(db, "orders")), remove(ref(db, "pastOrders")), remove(ref(db, "deletedOrders"))]);
+  };
+
+  const closeAllOpenTables = async () => {
+    if (openOrders.length === 0) {
+      return;
+    }
+
+    if (!window.confirm("Haluatko varmasti sulkea kaikki avoimet pöydät?")) {
+      return;
+    }
+
+    await Promise.all(
+      openOrders.map(async (order) => {
+        const closedAt = getTimestamp();
+        await push(ref(db, "pastOrders"), {
+          ...order,
+          status: "menneet",
+          closedAt,
+        });
+        await remove(ref(db, `orders/${order.id}`));
+      })
+    );
+  };
+
+  const closeOpenOrder = async (order) => {
+    if (!window.confirm(`Haluatko varmasti sulkea pöydän ${order.table}?`)) {
+      return;
+    }
+
+    const closedAt = getTimestamp();
+    await push(ref(db, "pastOrders"), {
+      ...order,
+      status: "menneet",
+      closedAt,
+    });
+    await remove(ref(db, `orders/${order.id}`));
+  };
+
+  const deleteAllOpenTables = async () => {
+    if (openOrders.length === 0) {
+      return;
+    }
+
+    if (!window.confirm("Haluatko varmasti poistaa kaikki avoimet pöydät?")) {
+      return;
+    }
+
+    await Promise.all(
+      openOrders.map(async (order) => {
+        await archiveDeletedOrder(order, "admin-bulk");
+        await remove(ref(db, `orders/${order.id}`));
+      })
+    );
+  };
+
+  const deleteOpenOrder = async (order) => {
+    if (!window.confirm(`Haluatko varmasti poistaa pöydän ${order.table}?`)) {
+      return;
+    }
+
+    await archiveDeletedOrder(order, "admin");
+    await remove(ref(db, `orders/${order.id}`));
   };
 
   const todaysClosedOrders = [...pastOrders, ...orders.filter((order) => order.status === "menneet")]
     .filter((order) => order.status === "menneet" && isSameLocalDay(order.closedAt || order.createdAt))
     .sort((left, right) => (right.closedAt || right.createdAt || 0) - (left.closedAt || left.createdAt || 0));
+  const openOrders = orders
+    .filter((order) => order.status !== "menneet")
+    .sort((left, right) => (right.createdAt || right.orderIndex || 0) - (left.createdAt || left.orderIndex || 0));
+  const todaysDeletedOrders = deletedOrders.filter((order) => isSameLocalDay(order.deletedAt || order.createdAt));
 
   const menuPriceMap = new Map(menu.map((meal) => [meal.id, Number(meal.price) || 0]));
   const salesSummaryMap = {};
@@ -1755,7 +1852,7 @@ function AdminApp({ menu, categories }) {
                 />
               </div>
               <div className="controls-row">
-                <button className="btn btn-primary" onClick={saveMeal} disabled={loading}>
+                <button className="btn btn-save" onClick={saveMeal} disabled={loading}>
                   {editing ? "Tallenna muutokset" : "Lisää annos"}
                 </button>
                 <button className="btn btn-secondary" onClick={resetForm}>
@@ -1778,7 +1875,7 @@ function AdminApp({ menu, categories }) {
               />
             </div>
             <div className="controls-row" style={{ marginTop: 12 }}>
-              <button className="btn btn-primary" onClick={saveCategory} disabled={categoryLoading}>
+              <button className="btn btn-save" onClick={saveCategory} disabled={categoryLoading}>
                 {editingCategory ? "Tallenna kategoria" : "Lisää kategoria"}
               </button>
               <button className="btn btn-secondary" onClick={resetCategoryForm}>
@@ -1830,7 +1927,7 @@ function AdminApp({ menu, categories }) {
                                       placeholder="Kategorian nimi"
                                     />
                                     <div className="controls-row admin-inline-actions">
-                                      <button className="btn btn-primary btn-small" onClick={() => saveInlineCategory(category)}>
+                                      <button className="btn btn-save btn-small" onClick={() => saveInlineCategory(category)}>
                                         Tallenna
                                       </button>
                                       <button className="btn btn-secondary btn-small" onClick={cancelInlineCategoryEdit}>
@@ -1919,11 +2016,14 @@ function AdminApp({ menu, categories }) {
                                                   ))}
                                                 </select>
                                                 <div className="content-stack" style={{ gap: 8 }}>
-                                                  <button className="btn btn-primary btn-small" onClick={() => saveInlineMeal(meal)}>
+                                                  <button className="btn btn-save btn-small" onClick={() => saveInlineMeal(meal)}>
                                                     Tallenna
                                                   </button>
                                                   <button className="btn btn-secondary btn-small" onClick={cancelInlineEdit}>
                                                     Peruuta
+                                                  </button>
+                                                  <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
+                                                    Poista
                                                   </button>
                                                 </div>
                                               </div>
@@ -1934,9 +2034,6 @@ function AdminApp({ menu, categories }) {
                                                 <div className="content-stack" style={{ gap: 8, marginTop: 12 }}>
                                                   <button className="btn btn-primary btn-small" onClick={() => startInlineEdit(meal)}>
                                                     Muokkaa
-                                                  </button>
-                                                  <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
-                                                    Poista
                                                   </button>
                                                 </div>
                                               </>
@@ -1997,11 +2094,14 @@ function AdminApp({ menu, categories }) {
                           ))}
                         </select>
                         <div className="content-stack" style={{ gap: 8 }}>
-                          <button className="btn btn-primary btn-small" onClick={() => saveInlineMeal(meal)}>
+                          <button className="btn btn-save btn-small" onClick={() => saveInlineMeal(meal)}>
                             Tallenna
                           </button>
                           <button className="btn btn-secondary btn-small" onClick={cancelInlineEdit}>
                             Peruuta
+                          </button>
+                          <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
+                            Poista
                           </button>
                         </div>
                       </div>
@@ -2012,9 +2112,6 @@ function AdminApp({ menu, categories }) {
                         <div className="content-stack" style={{ gap: 8, marginTop: 12 }}>
                           <button className="btn btn-primary btn-small" onClick={() => startInlineEdit(meal)}>
                             Muokkaa
-                          </button>
-                          <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
-                            Poista
                           </button>
                         </div>
                       </>
@@ -2039,8 +2136,19 @@ function AdminApp({ menu, categories }) {
         <div className="sales-total-card">
           <div className="sales-total-label">Tuotto tänään</div>
           <div className="sales-total-value">{todaysRevenue.toFixed(2)}€</div>
-          <div className="muted">
-            {todaysClosedOrders.length} suljettua tilausta tänään
+          <div className="sales-total-stats">
+            <div className="sales-total-stat">
+              <span className="sales-total-stat-label">Suljettu</span>
+              <span className="sales-total-stat-value">{todaysClosedOrders.length}</span>
+            </div>
+            <div className="sales-total-stat">
+              <span className="sales-total-stat-label">Avoin</span>
+              <span className="sales-total-stat-value">{openOrders.length}</span>
+            </div>
+            <div className="sales-total-stat">
+              <span className="sales-total-stat-label">Poistettu</span>
+              <span className="sales-total-stat-value">{todaysDeletedOrders.length}</span>
+            </div>
           </div>
           <div className="controls-row" style={{ marginTop: 12 }}>
             <button className="btn btn-danger btn-small" onClick={endDay}>
@@ -2071,7 +2179,65 @@ function AdminApp({ menu, categories }) {
           </div>
 
           <div>
-            <h3 className="panel-title">Menneet tapahtumat</h3>
+            <div className="menu-category-header">
+              <h3 className="panel-title">Avoimet pöydät</h3>
+              {openOrders.length > 0 ? (
+                <div className="controls-row">
+                  <button className="btn btn-secondary btn-small" onClick={closeAllOpenTables}>
+                    Sulje kaikki avoimet pöydät
+                  </button>
+                  <button className="btn btn-danger btn-small" onClick={deleteAllOpenTables}>
+                    Poista avoimet pöydät
+                  </button>
+                </div>
+              ) : null}
+            </div>
+            {openOrders.length > 0 ? (
+              <div className="sales-events">
+                {openOrders.map((order) => (
+                  <div key={order.id} className={`order-card ${order.status || "waiting"} cashier-order-card`}>
+                    <div className="order-card-head">
+                      <div className="cashier-order-main">
+                        <span className="order-table">Pöytä {order.table}</span>
+                        <span className="cashier-order-badge">
+                          {groupOrderItems(order.items || []).length} riviä
+                        </span>
+                      </div>
+                      <div className="cashier-order-time">
+                        {new Date(order.createdAt || 0).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          hour12: false,
+                        })}
+                      </div>
+                    </div>
+                    <div className="cashier-items">
+                      {groupOrderItems(order.items || []).map((item, index) => (
+                        <div key={index} className="cashier-item-row">
+                          <span className="cashier-item-qty">{item.qty}x</span>
+                          <span className="cashier-item-name">{item.meal}</span>
+                          {item.notes ? <span className="cashier-item-notes">{item.notes}</span> : null}
+                        </div>
+                      ))}
+                    </div>
+                    <div className="cashier-order-actions">
+                      <button className="btn btn-secondary btn-small" onClick={() => closeOpenOrder(order)}>
+                        Sulje
+                      </button>
+                      <button className="btn btn-danger btn-small" onClick={() => deleteOpenOrder(order)}>
+                        Poista
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">Ei avoimia pöytiä juuri nyt.</p>
+            )}
+          </div>
+
+          <div>
+            <h3 className="panel-title">Suljetut Pöydät</h3>
             {todaysClosedOrders.length > 0 ? (
               <div className="sales-events">
                 {todaysClosedOrders.map((order) => (
