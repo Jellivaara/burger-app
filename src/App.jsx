@@ -168,11 +168,38 @@ function buildCategoryGroups(menu, categories, categoryOrder = [], includeEmpty 
 }
 
 function ScreenHeader({ title, subtitle }) {
+  const [currentTime, setCurrentTime] = useState(() =>
+    new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false,
+    })
+  );
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setCurrentTime(
+        new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        })
+      );
+    }, 1000);
+
+    return () => window.clearInterval(intervalId);
+  }, []);
+
   return (
     <div className="screen-header">
       <div>
         <h1 className="screen-title">{title}</h1>
         {subtitle ? <p className="screen-subtitle">{subtitle}</p> : null}
+      </div>
+      <div className="screen-clock" aria-label="Nykyinen kellonaika">
+        {currentTime}
       </div>
     </div>
   );
@@ -1027,6 +1054,7 @@ function CashierApp({ menu, categories }) {
                                             {new Date(order.createdAt).toLocaleTimeString([], {
                                               hour: "2-digit",
                                               minute: "2-digit",
+                                              hour12: false,
                                             })}
                                           </span>
                                         </div>
@@ -1192,12 +1220,13 @@ function KitchenApp() {
                                   <span className="order-table">Pöytä {order.table}</span>
                                   <span className="kitchen-order-badge">{groupedItems.length} riviä</span>
                                 </div>
-                                <span className="order-time kitchen-order-time">
+                                  <span className="order-time kitchen-order-time">
                                     {new Date(order.createdAt).toLocaleTimeString([], {
                                       hour: "2-digit",
                                       minute: "2-digit",
+                                      hour12: false,
                                     })}
-                                </span>
+                                  </span>
                               </div>
 
                               {order.updated ? (
@@ -2029,6 +2058,7 @@ function AdminApp({ menu, categories }) {
                         {new Date(order.closedAt || order.createdAt).toLocaleTimeString([], {
                           hour: "2-digit",
                           minute: "2-digit",
+                          hour12: false,
                         })}
                       </span>
                     </div>

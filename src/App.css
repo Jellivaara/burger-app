@@ -82,11 +82,24 @@
 }
 
 .screen-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
   gap: 16px;
   margin-bottom: 24px;
+}
+
+.screen-clock {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(127, 88, 63, 0.14);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.68);
+  color: #2f1b11;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  box-shadow: 0 10px 18px rgba(62, 37, 20, 0.08);
 }
 
 .screen-title {
@@ -889,6 +902,12 @@
 
   .screen {
     padding-inline: 14px;
+  }
+}
+
+@media (max-width: 640px) {
+  .screen-header {
+    grid-template-columns: 1fr;
   }
 }
 
