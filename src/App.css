@@ -6,6 +6,14 @@
     linear-gradient(180deg, #fff8f1 0%, #fffdf8 52%, #f7f1e8 100%);
 }
 
+.screen,
+.login-shell {
+  background:
+    radial-gradient(circle at top left, rgba(255, 209, 102, 0.22), transparent 32%),
+    radial-gradient(circle at top right, rgba(240, 93, 63, 0.18), transparent 30%),
+    linear-gradient(180deg, #fff8f1 0%, #fffdf8 52%, #f7f1e8 100%);
+}
+
 .topbar {
   position: sticky;
   top: 0;

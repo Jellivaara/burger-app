@@ -35,6 +35,8 @@ const statusTitles = {
   menneet: "Menneet tilaukset",
 };
 
+const TABLE_OPTIONS = [...Array(20)].map((_, index) => String(index + 1));
+
 function groupOrderItems(items = []) {
   const groupedItems = {};
 
@@ -129,19 +131,39 @@ function CashierApp({ menu }) {
   useEffect(() => {
     onValue(ref(db, "orders"), (snapshot) => {
       const data = snapshot.val() || {};
-      setOrders(Object.entries(data).map(([id, value]) => ({ id, ...value })));
+      const nextOrders = Object.entries(data).map(([id, value]) => ({ id, ...value }));
+      const inactiveStatuses = ["paid", "closed", "menneet"];
+      const occupiedTables = nextOrders
+        .filter((order) => !inactiveStatuses.includes(order.status))
+        .map((order) => order.table);
+
+      setOrders(nextOrders);
+      setTable((previous) => {
+        if (editingId || newOrderMode || !occupiedTables.includes(previous)) {
+          return previous;
+        }
+
+        return TABLE_OPTIONS.find((candidate) => !occupiedTables.includes(candidate)) || previous;
+      });
     });
-  }, []);
+  }, [editingId, newOrderMode]);
 
   const inactiveStatuses = ["paid", "closed", "menneet"];
   const activeTables = orders
     .filter((order) => !inactiveStatuses.includes(order.status))
     .map((order) => order.table);
-  const availableTables = [...Array(20)]
-    .map((_, index) => String(index + 1))
-    .filter((candidate) => !activeTables.includes(candidate) || candidate === table);
+  const availableTables = TABLE_OPTIONS.filter((candidate) => !activeTables.includes(candidate) || candidate === table);
   const checkTableAvailable = () =>
     !orders.find((order) => order.table === table && !inactiveStatuses.includes(order.status));
+  const getNextAvailableTable = (preferredTable = null) => {
+    const candidateTables = preferredTable ? [preferredTable, ...TABLE_OPTIONS] : TABLE_OPTIONS;
+    return candidateTables.find(
+      (candidate, index) =>
+        candidate &&
+        candidateTables.indexOf(candidate) === index &&
+        !activeTables.includes(candidate)
+    );
+  };
 
   const startNewOrder = () => {
     if (!checkTableAvailable()) {
@@ -163,13 +185,15 @@ function CashierApp({ menu }) {
     }
 
     const existingOrder = editingId ? orders.find((order) => order.id === editingId) : null;
+    // eslint-disable-next-line react-hooks/purity
+    const now = Date.now();
     const data = {
       table,
       items: currentOrder,
       status: existingOrder?.status || "waiting",
       updated: Boolean(editingId),
-      createdAt: existingOrder?.createdAt || Date.now(),
-      orderIndex: existingOrder?.orderIndex || Date.now(),
+      createdAt: existingOrder?.createdAt || now,
+      orderIndex: existingOrder?.orderIndex || now,
     };
 
     if (editingId) {
@@ -178,10 +202,14 @@ function CashierApp({ menu }) {
       push(ref(db, "orders"), data);
     }
 
+    const nextAvailableTable = editingId ? table : getNextAvailableTable();
     setCurrentOrder([]);
     setEditingId(null);
     setNewOrderMode(false);
     setOrderChanged(false);
+    if (nextAvailableTable) {
+      setTable(nextAvailableTable);
+    }
   };
 
   const cancelEdit = () => {
@@ -276,23 +304,25 @@ function CashierApp({ menu }) {
       />
 
       <div className="content-stack">
-        <div className="panel">
-          <div className="controls-row">
-            <div className="field-group">
-              <label>Pöytä</label>
-              <select className="select" value={table} onChange={(event) => setTable(event.target.value)}>
-                {availableTables.map((candidate) => (
-                  <option key={candidate} value={candidate}>
-                    {candidate}
-                  </option>
-                ))}
-              </select>
+        {!newOrderMode && !editingId ? (
+          <div className="panel">
+            <div className="controls-row">
+              <div className="field-group">
+                <label>Pöytä</label>
+                <select className="select" value={table} onChange={(event) => setTable(event.target.value)}>
+                  {availableTables.map((candidate) => (
+                    <option key={candidate} value={candidate}>
+                      {candidate}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button className="btn btn-primary" onClick={startNewOrder}>
+                Uusi tilaus
+              </button>
             </div>
-            <button className="btn btn-primary" onClick={startNewOrder}>
-              Uusi tilaus
-            </button>
           </div>
-        </div>
+        ) : null}
 
         {newOrderMode || editingId ? (
           <div ref={editRef} className="panel">
@@ -371,7 +401,7 @@ function CashierApp({ menu }) {
                   </div>
                 ))}
               </div>
-              {currentOrder.length > 0 ? (
+              {editingId && currentOrder.length > 0 ? (
                 <button className="btn btn-danger" onClick={deleteWholeOrder} style={{ marginTop: 12 }}>
                   Poista koko tilaus
                 </button>
