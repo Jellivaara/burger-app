@@ -1779,6 +1779,11 @@ export default function App() {
                   placeholder="Salasana"
                   value={adminPasswordInput}
                   onChange={(event) => setAdminPasswordInput(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      enterAdmin();
+                    }
+                  }}
                 />
               </div>
               <div className="login-actions">
