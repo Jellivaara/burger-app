@@ -577,6 +577,14 @@
   cursor: grab;
 }
 
+.admin-inline-actions {
+  align-items: center;
+}
+
+.admin-inline-danger {
+  margin-left: auto;
+}
+
 .admin-draggable-card {
   cursor: grab;
 }
