@@ -38,7 +38,12 @@ const statusTitles = {
 const TABLE_OPTIONS = [...Array(20)].map((_, index) => String(index + 1));
 const UNCATEGORIZED_ID = "__uncategorized__";
 const UNCATEGORIZED_LABEL = "Tyhjä kategoria";
-const ADMIN_TOOL_PANELS = ["meal-form", "menu-list", "daily-sales"];
+const ADMIN_TOOL_PANELS = ["menu-list", "daily-sales", "meal-form"];
+const ADMIN_PANEL_TITLES = {
+  "meal-form": "Lisää uusi annos",
+  "menu-list": "Ruokalista",
+  "daily-sales": "Päivän myynti",
+};
 
 function groupOrderItems(items = []) {
   const groupedItems = {};
@@ -775,7 +780,7 @@ function AdminApp({ menu, categories }) {
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [adminToolOrder, setAdminToolOrder] = useState(ADMIN_TOOL_PANELS);
   const [showCategoryForm, setShowCategoryForm] = useState(false);
-  const [collapsedPanels, setCollapsedPanels] = useState({});
+  const [collapsedPanels, setCollapsedPanels] = useState({ "meal-form": true });
   const [inlineEditingMealId, setInlineEditingMealId] = useState(null);
   const [inlineMealName, setInlineMealName] = useState("");
   const [inlineMealPrice, setInlineMealPrice] = useState("");
@@ -953,6 +958,7 @@ function AdminApp({ menu, categories }) {
     nextDestinationItems.splice(result.destination.index, 0, movedMeal);
 
     const updates = {};
+    const nextCategoryId = destinationCategoryId === UNCATEGORIZED_ID ? "" : destinationCategoryId;
     nextSourceItems.forEach((meal, index) => {
       updates[`menu/${meal.id}/order`] = index;
       if (sourceCategoryId !== destinationCategoryId && meal.categoryId !== movingMeal.categoryId) {
@@ -962,11 +968,12 @@ function AdminApp({ menu, categories }) {
 
     nextDestinationItems.forEach((meal, index) => {
       updates[`menu/${meal.id}/order`] = index;
-      const nextCategoryId = destinationCategoryId === UNCATEGORIZED_ID ? "" : destinationCategoryId;
       if ((meal.categoryId || "") !== nextCategoryId) {
         updates[`menu/${meal.id}/categoryId`] = nextCategoryId;
       }
     });
+
+    updates[`menu/${movingMeal.id}/categoryId`] = nextCategoryId;
 
     await update(ref(db), updates);
   };
@@ -1334,7 +1341,7 @@ function AdminApp({ menu, categories }) {
                     >
                       <div className="admin-panel-toolbar">
                         <div className="admin-panel-handle" {...draggableProvided.dragHandleProps}>
-                          Järjestele paneeli
+                          {ADMIN_PANEL_TITLES[panelId] || "Paneeli"}
                         </div>
                         <button
                           className="btn btn-secondary btn-small"
