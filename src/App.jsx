@@ -182,6 +182,7 @@ function CashierApp({ menu, categories }) {
   const [newOrderMode, setNewOrderMode] = useState(false);
   const [orderChanged, setOrderChanged] = useState(false);
   const [menuCategoryOrder, setMenuCategoryOrder] = useState([]);
+  const [mealSearch, setMealSearch] = useState("");
   const editRef = useRef(null);
 
   useEffect(() => {
@@ -244,6 +245,7 @@ function CashierApp({ menu, categories }) {
     setEditingId(null);
     setNewOrderMode(true);
     setOrderChanged(false);
+    setMealSearch("");
     setTimeout(() => editRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
 
@@ -276,6 +278,7 @@ function CashierApp({ menu, categories }) {
     setEditingId(null);
     setNewOrderMode(false);
     setOrderChanged(false);
+    setMealSearch("");
     if (nextAvailableTable) {
       setTable(nextAvailableTable);
     }
@@ -286,6 +289,7 @@ function CashierApp({ menu, categories }) {
     setEditingId(null);
     setNewOrderMode(false);
     setOrderChanged(false);
+    setMealSearch("");
   };
 
   const startEditOrder = (order) => {
@@ -305,6 +309,7 @@ function CashierApp({ menu, categories }) {
     setTable(order.table);
     setNewOrderMode(true);
     setOrderChanged(false);
+    setMealSearch("");
     setTimeout(() => editRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
 
@@ -381,7 +386,23 @@ function CashierApp({ menu, categories }) {
     setMenuCategoryOrder(newOrder);
   };
 
-  const menuGroups = buildCategoryGroups(menu, categories, menuCategoryOrder);
+  const normalizedMealSearch = mealSearch.trim().toLowerCase();
+  const categoryNameMap = new Map(
+    categories.map((category) => [category.id, category.name.toLowerCase()])
+  );
+  const filteredMenu = normalizedMealSearch
+    ? menu.filter((meal) => {
+        const mealNameMatch = meal.name.toLowerCase().includes(normalizedMealSearch);
+        const mealCategoryName =
+          categoryNameMap.get(meal.categoryId || "") ||
+          (normalizeCategoryId(meal.categoryId) === UNCATEGORIZED_ID ? UNCATEGORIZED_LABEL.toLowerCase() : "");
+        const categoryMatch = mealCategoryName.includes(normalizedMealSearch);
+        return mealNameMatch || categoryMatch;
+      })
+    : menu;
+  const menuGroups = buildCategoryGroups(filteredMenu, categories, menuCategoryOrder).filter(
+    (category) => category.items.length > 0 || !normalizedMealSearch
+  );
 
   return (
     <div className="screen">
@@ -417,6 +438,17 @@ function CashierApp({ menu, categories }) {
               <span className="panel-title-accent">{editingId ? "Muokkaa tilausta" : "Uusi tilaus"}</span>
               <span className="panel-title-muted">Pöytä {table}</span>
             </h2>
+
+            <div className="field-group" style={{ marginBottom: 16 }}>
+              <label>Hae annosta tai kategoriaa</label>
+              <input
+                className="input"
+                type="text"
+                placeholder="Kirjoita annoksen tai kategorian nimi..."
+                value={mealSearch}
+                onChange={(event) => setMealSearch(event.target.value)}
+              />
+            </div>
 
             <DragDropContext onDragEnd={onMenuCategoryDragEnd}>
               <Droppable droppableId="cashier-menu-categories" direction="vertical" type="MENU_CATEGORY">
@@ -459,6 +491,9 @@ function CashierApp({ menu, categories }) {
                         )}
                       </Draggable>
                     ))}
+                    {normalizedMealSearch && menuGroups.length === 0 ? (
+                      <p className="muted">Haulla ei löytynyt annoksia.</p>
+                    ) : null}
                     {provided.placeholder}
                   </div>
                 )}
