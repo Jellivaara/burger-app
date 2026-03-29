@@ -813,6 +813,7 @@ function AdminApp({ menu, categories }) {
   const [editingCategory, setEditingCategory] = useState(null);
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [adminToolOrder, setAdminToolOrder] = useState(ADMIN_TOOL_PANELS);
+  const [menuCategoryOrder, setMenuCategoryOrder] = useState([]);
   const [showCategoryForm, setShowCategoryForm] = useState(false);
   const [showMealForm, setShowMealForm] = useState(false);
   const [collapsedPanels, setCollapsedPanels] = useState({});
@@ -1043,6 +1044,14 @@ function AdminApp({ menu, categories }) {
       return;
     }
 
+    if (result.type === "ADMIN_CATEGORY") {
+      const nextOrder = Array.from(effectiveMenuCategoryOrder);
+      const [removed] = nextOrder.splice(result.source.index, 1);
+      nextOrder.splice(result.destination.index, 0, removed);
+      setMenuCategoryOrder(nextOrder);
+      return;
+    }
+
     if (result.type === "ADMIN_MEAL") {
       await moveMealBetweenCategories(result);
     }
@@ -1093,6 +1102,12 @@ function AdminApp({ menu, categories }) {
   });
 
   const salesSummary = Object.values(salesSummaryMap).sort((left, right) => right.qty - left.qty);
+  const effectiveMenuCategoryOrder = (() => {
+    const availableCategoryIds = [...categories.map((category) => category.id), UNCATEGORIZED_ID];
+    const filtered = menuCategoryOrder.filter((id) => availableCategoryIds.includes(id));
+    const missing = availableCategoryIds.filter((id) => !filtered.includes(id));
+    return [...filtered, ...missing];
+  })();
   const normalizedMealSearch = mealSearch.trim().toLowerCase();
   const categoryNameMap = new Map(
     categories.map((category) => [category.id, category.name.toLowerCase()])
@@ -1241,130 +1256,151 @@ function AdminApp({ menu, categories }) {
           />
         </div>
         <div className="content-stack">
-          {buildCategoryGroups(filteredMenu, categories, categories.map((category) => category.id), true)
-            .filter((category) => category.items.length > 0 || !normalizedMealSearch)
-            .map((category) => (
-            <div key={category.id} className="admin-category-block">
-              <div className="menu-category-header">
-                {inlineEditingCategoryId === category.id ? (
-                  <div className="content-stack" style={{ gap: 8, flex: 1 }}>
-                    <input
-                      className="input"
-                      type="text"
-                      value={inlineCategoryName}
-                      onChange={(event) => setInlineCategoryName(event.target.value)}
-                      placeholder="Kategorian nimi"
-                    />
-                    <div className="controls-row">
-                      <button className="btn btn-primary btn-small" onClick={() => saveInlineCategory(category)}>
-                        Tallenna
-                      </button>
-                      <button className="btn btn-secondary btn-small" onClick={cancelInlineCategoryEdit}>
-                        Peruuta
-                      </button>
-                    </div>
-                  </div>
-                ) : (
-                  <h3 className="panel-title">{category.name}</h3>
-                )}
-                {category.id !== UNCATEGORIZED_ID ? (
-                  <div className="controls-row">
-                    {inlineEditingCategoryId !== category.id ? (
-                      <button className="btn btn-primary btn-small" onClick={() => startEditCategory(category)}>
-                        Muokkaa kategoriaa
-                      </button>
-                    ) : null}
-                    <button className="btn btn-danger btn-small" onClick={() => deleteCategory(category)}>
-                      Poista
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              <Droppable droppableId={`admin-category-${category.id}`} type="ADMIN_MEAL">
-                {(provided, snapshot) => (
-                  <div
-                    ref={provided.innerRef}
-                    {...provided.droppableProps}
-                    className={`product-grid admin-dropzone${snapshot.isDraggingOver ? " is-over" : ""}`}
-                  >
-                    {category.items.map((meal, index) => (
-                      <Draggable key={meal.id} draggableId={meal.id} index={index}>
-                        {(draggableProvided) => (
-                          <div
-                            ref={draggableProvided.innerRef}
-                            {...draggableProvided.draggableProps}
-                            {...draggableProvided.dragHandleProps}
-                            className="product-card admin-draggable-card"
-                            style={draggableProvided.draggableProps.style}
-                          >
-                            {meal.image ? (
-                              <img className="product-image" src={meal.image} alt={meal.name} />
-                            ) : (
-                              <div className="product-placeholder" />
-                            )}
-                            {inlineEditingMealId === meal.id ? (
-                              <div className="content-stack" style={{ gap: 8, marginTop: 10 }}>
-                                <input
-                                  className="input"
-                                  type="text"
-                                  value={inlineMealName}
-                                  onChange={(event) => setInlineMealName(event.target.value)}
-                                  placeholder="Nimi"
-                                />
-                                <input
-                                  className="input"
-                                  type="number"
-                                  value={inlineMealPrice}
-                                  onChange={(event) => setInlineMealPrice(event.target.value)}
-                                  placeholder="Hinta"
-                                />
-                                <select
-                                  className="select"
-                                  value={inlineMealCategoryId}
-                                  onChange={(event) => setInlineMealCategoryId(event.target.value)}
-                                >
-                                  <option value="">Tyhjä kategoria</option>
-                                  {categories.map((categoryOption) => (
-                                    <option key={categoryOption.id} value={categoryOption.id}>
-                                      {categoryOption.name}
-                                    </option>
-                                  ))}
-                                </select>
-                                <div className="content-stack" style={{ gap: 8 }}>
-                                  <button className="btn btn-primary btn-small" onClick={() => saveInlineMeal(meal)}>
-                                    Tallenna
-                                  </button>
-                                  <button className="btn btn-secondary btn-small" onClick={cancelInlineEdit}>
-                                    Peruuta
-                                  </button>
+          <Droppable droppableId="admin-menu-categories" direction="vertical" type="ADMIN_CATEGORY">
+            {(categoryProvided) => (
+              <div ref={categoryProvided.innerRef} {...categoryProvided.droppableProps} className="content-stack">
+                {buildCategoryGroups(filteredMenu, categories, effectiveMenuCategoryOrder, true)
+                  .filter((category) => category.items.length > 0 || !normalizedMealSearch)
+                  .map((category, categoryIndex) => (
+                    <Draggable key={category.id} draggableId={`admin-category-order-${category.id}`} index={categoryIndex}>
+                      {(categoryDraggableProvided) => (
+                        <div
+                          ref={categoryDraggableProvided.innerRef}
+                          {...categoryDraggableProvided.draggableProps}
+                          className="admin-category-block"
+                          style={categoryDraggableProvided.draggableProps.style}
+                        >
+                          <div className="menu-category-header">
+                            <div className="admin-category-title-wrap" {...categoryDraggableProvided.dragHandleProps}>
+                              {inlineEditingCategoryId === category.id ? (
+                                <div className="content-stack" style={{ gap: 8, flex: 1 }}>
+                                  <input
+                                    className="input"
+                                    type="text"
+                                    value={inlineCategoryName}
+                                    onChange={(event) => setInlineCategoryName(event.target.value)}
+                                    placeholder="Kategorian nimi"
+                                  />
+                                  <div className="controls-row">
+                                    <button className="btn btn-primary btn-small" onClick={() => saveInlineCategory(category)}>
+                                      Tallenna
+                                    </button>
+                                    <button className="btn btn-secondary btn-small" onClick={cancelInlineCategoryEdit}>
+                                      Peruuta
+                                    </button>
+                                  </div>
                                 </div>
+                              ) : (
+                                <>
+                                  <h3 className="panel-title">{category.name}</h3>
+                                  <span className="menu-category-hint">Vedä kategoriaa</span>
+                                </>
+                              )}
+                            </div>
+                            {category.id !== UNCATEGORIZED_ID ? (
+                              <div className="controls-row">
+                                {inlineEditingCategoryId !== category.id ? (
+                                  <button className="btn btn-primary btn-small" onClick={() => startEditCategory(category)}>
+                                    Muokkaa kategoriaa
+                                  </button>
+                                ) : null}
+                                <button className="btn btn-danger btn-small" onClick={() => deleteCategory(category)}>
+                                  Poista
+                                </button>
                               </div>
-                            ) : (
-                              <>
-                                <div className="product-name">{meal.name}</div>
-                                <div className="product-price">{meal.price}€</div>
-                                <div className="content-stack" style={{ gap: 8, marginTop: 12 }}>
-                                  <button className="btn btn-primary btn-small" onClick={() => startInlineEdit(meal)}>
-                                    Muokkaa
-                                  </button>
-                                  <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
-                                    Poista
-                                  </button>
-                                </div>
-                              </>
-                            )}
+                            ) : null}
                           </div>
-                        )}
-                      </Draggable>
-                    ))}
-                    {provided.placeholder}
-                  </div>
-                )}
-              </Droppable>
-            </div>
-          ))}
+                          <Droppable droppableId={`admin-category-${category.id}`} type="ADMIN_MEAL">
+                            {(provided, snapshot) => (
+                              <div
+                                ref={provided.innerRef}
+                                {...provided.droppableProps}
+                                className={`product-grid admin-dropzone${snapshot.isDraggingOver ? " is-over" : ""}`}
+                              >
+                                {category.items.map((meal, index) => (
+                                  <Draggable key={meal.id} draggableId={meal.id} index={index}>
+                                    {(draggableProvided) => (
+                                      <div
+                                        ref={draggableProvided.innerRef}
+                                        {...draggableProvided.draggableProps}
+                                        {...draggableProvided.dragHandleProps}
+                                        className="product-card admin-draggable-card"
+                                        style={draggableProvided.draggableProps.style}
+                                      >
+                                        {meal.image ? (
+                                          <img className="product-image" src={meal.image} alt={meal.name} />
+                                        ) : (
+                                          <div className="product-placeholder" />
+                                        )}
+                                        {inlineEditingMealId === meal.id ? (
+                                          <div className="content-stack" style={{ gap: 8, marginTop: 10 }}>
+                                            <input
+                                              className="input"
+                                              type="text"
+                                              value={inlineMealName}
+                                              onChange={(event) => setInlineMealName(event.target.value)}
+                                              placeholder="Nimi"
+                                            />
+                                            <input
+                                              className="input"
+                                              type="number"
+                                              value={inlineMealPrice}
+                                              onChange={(event) => setInlineMealPrice(event.target.value)}
+                                              placeholder="Hinta"
+                                            />
+                                            <select
+                                              className="select"
+                                              value={inlineMealCategoryId}
+                                              onChange={(event) => setInlineMealCategoryId(event.target.value)}
+                                            >
+                                              <option value="">Tyhjä kategoria</option>
+                                              {categories.map((categoryOption) => (
+                                                <option key={categoryOption.id} value={categoryOption.id}>
+                                                  {categoryOption.name}
+                                                </option>
+                                              ))}
+                                            </select>
+                                            <div className="content-stack" style={{ gap: 8 }}>
+                                              <button className="btn btn-primary btn-small" onClick={() => saveInlineMeal(meal)}>
+                                                Tallenna
+                                              </button>
+                                              <button className="btn btn-secondary btn-small" onClick={cancelInlineEdit}>
+                                                Peruuta
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ) : (
+                                          <>
+                                            <div className="product-name">{meal.name}</div>
+                                            <div className="product-price">{meal.price}€</div>
+                                            <div className="content-stack" style={{ gap: 8, marginTop: 12 }}>
+                                              <button className="btn btn-primary btn-small" onClick={() => startInlineEdit(meal)}>
+                                                Muokkaa
+                                              </button>
+                                              <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
+                                                Poista
+                                              </button>
+                                            </div>
+                                          </>
+                                        )}
+                                      </div>
+                                    )}
+                                  </Draggable>
+                                ))}
+                                {provided.placeholder}
+                              </div>
+                            )}
+                          </Droppable>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                {categoryProvided.placeholder}
+              </div>
+            )}
+          </Droppable>
           {normalizedMealSearch &&
-          buildCategoryGroups(filteredMenu, categories, categories.map((category) => category.id), true).every(
+          buildCategoryGroups(filteredMenu, categories, effectiveMenuCategoryOrder, true).every(
             (category) => category.items.length === 0
           ) ? (
             <p className="muted">Haulla ei löytynyt annoksia.</p>
