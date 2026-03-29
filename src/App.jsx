@@ -36,6 +36,8 @@ const statusTitles = {
 };
 
 const TABLE_OPTIONS = [...Array(20)].map((_, index) => String(index + 1));
+const UNCATEGORIZED_ID = "__uncategorized__";
+const UNCATEGORIZED_LABEL = "Tyhjä kategoria";
 
 function groupOrderItems(items = []) {
   const groupedItems = {};
@@ -50,6 +52,42 @@ function groupOrderItems(items = []) {
   });
 
   return Object.values(groupedItems);
+}
+
+function normalizeCategoryId(categoryId) {
+  return categoryId || UNCATEGORIZED_ID;
+}
+
+function buildCategoryGroups(menu, categories, categoryOrder = []) {
+  const categoryMap = new Map(categories.map((category) => [category.id, category]));
+  const baseCategories = [
+    ...categories.map((category) => ({
+      id: category.id,
+      name: category.name,
+    })),
+    { id: UNCATEGORIZED_ID, name: UNCATEGORIZED_LABEL },
+  ];
+
+  const preferredOrder = categoryOrder.length > 0 ? categoryOrder : baseCategories.map((category) => category.id);
+  const orderedCategories = [
+    ...preferredOrder
+      .map((id) =>
+        id === UNCATEGORIZED_ID
+          ? { id: UNCATEGORIZED_ID, name: UNCATEGORIZED_LABEL }
+          : categoryMap.has(id)
+            ? { id, name: categoryMap.get(id).name }
+            : null
+      )
+      .filter(Boolean),
+    ...baseCategories.filter((category) => !preferredOrder.includes(category.id)),
+  ];
+
+  return orderedCategories
+    .map((category) => ({
+      ...category,
+      items: menu.filter((meal) => normalizeCategoryId(meal.categoryId) === category.id),
+    }))
+    .filter((category) => category.items.length > 0);
 }
 
 function ScreenHeader({ title, subtitle }) {
@@ -119,13 +157,14 @@ const useAdminPassword = () => {
   return password;
 };
 
-function CashierApp({ menu }) {
+function CashierApp({ menu, categories }) {
   const [table, setTable] = useState("1");
   const [currentOrder, setCurrentOrder] = useState([]);
   const [orders, setOrders] = useState([]);
   const [editingId, setEditingId] = useState(null);
   const [newOrderMode, setNewOrderMode] = useState(false);
   const [orderChanged, setOrderChanged] = useState(false);
+  const [menuCategoryOrder, setMenuCategoryOrder] = useState([]);
   const editRef = useRef(null);
 
   useEffect(() => {
@@ -164,6 +203,19 @@ function CashierApp({ menu }) {
         !activeTables.includes(candidate)
     );
   };
+
+  useEffect(() => {
+    const availableCategoryIds = [
+      ...categories.map((category) => category.id),
+      UNCATEGORIZED_ID,
+    ];
+
+    setMenuCategoryOrder((previous) => {
+      const filtered = previous.filter((id) => availableCategoryIds.includes(id));
+      const missing = availableCategoryIds.filter((id) => !filtered.includes(id));
+      return [...filtered, ...missing];
+    });
+  }, [categories]);
 
   const startNewOrder = () => {
     if (!checkTableAvailable()) {
@@ -296,6 +348,19 @@ function CashierApp({ menu }) {
     setCategoryOrder(newOrder);
   };
 
+  const onMenuCategoryDragEnd = (result) => {
+    if (!result.destination) {
+      return;
+    }
+
+    const newOrder = Array.from(menuCategoryOrder);
+    const [removed] = newOrder.splice(result.source.index, 1);
+    newOrder.splice(result.destination.index, 0, removed);
+    setMenuCategoryOrder(newOrder);
+  };
+
+  const menuGroups = buildCategoryGroups(menu, categories, menuCategoryOrder);
+
   return (
     <div className="screen">
       <ScreenHeader
@@ -331,23 +396,49 @@ function CashierApp({ menu }) {
               <span className="panel-title-muted">Pöytä {table}</span>
             </h2>
 
-            <div className="product-grid">
-              {menu.map((meal) => (
-                <div
-                  key={meal.id}
-                  className="product-card clickable"
-                  onClick={() => addToOrderFromMenu(meal.id)}
-                >
-                  {meal.image ? (
-                    <img className="product-image" src={meal.image} alt={meal.name} />
-                  ) : (
-                    <div className="product-placeholder" />
-                  )}
-                  <div className="product-name">{meal.name}</div>
-                  {meal.price != null ? <div className="product-price">{meal.price}€</div> : null}
-                </div>
-              ))}
-            </div>
+            <DragDropContext onDragEnd={onMenuCategoryDragEnd}>
+              <Droppable droppableId="cashier-menu-categories" direction="vertical" type="MENU_CATEGORY">
+                {(provided) => (
+                  <div ref={provided.innerRef} {...provided.droppableProps} className="content-stack">
+                    {menuGroups.map((category, index) => (
+                      <Draggable key={category.id} draggableId={category.id} index={index}>
+                        {(draggableProvided) => (
+                          <div
+                            ref={draggableProvided.innerRef}
+                            {...draggableProvided.draggableProps}
+                            className="panel menu-category-panel"
+                            style={draggableProvided.draggableProps.style}
+                          >
+                            <div className="menu-category-header" {...draggableProvided.dragHandleProps}>
+                              <h3 className="panel-title">{category.name}</h3>
+                              <span className="menu-category-hint">Vedä kategoriaa</span>
+                            </div>
+                            <div className="product-grid">
+                              {category.items.map((meal) => (
+                                <div
+                                  key={meal.id}
+                                  className="product-card clickable"
+                                  onClick={() => addToOrderFromMenu(meal.id)}
+                                >
+                                  {meal.image ? (
+                                    <img className="product-image" src={meal.image} alt={meal.name} />
+                                  ) : (
+                                    <div className="product-placeholder" />
+                                  )}
+                                  <div className="product-name">{meal.name}</div>
+                                  {meal.price != null ? <div className="product-price">{meal.price}€</div> : null}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </Draggable>
+                    ))}
+                    {provided.placeholder}
+                  </div>
+                )}
+              </Droppable>
+            </DragDropContext>
 
             <div className="panel" style={{ marginTop: 18, padding: 16 }}>
               <h3 className="panel-title">Tilauksen annokset</h3>
@@ -650,25 +741,22 @@ function KitchenApp() {
   );
 }
 
-function AdminApp() {
-  const [menu, setMenu] = useState([]);
+function AdminApp({ menu, categories }) {
   const [editing, setEditing] = useState(null);
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
+  const [selectedCategoryId, setSelectedCategoryId] = useState("");
   const [imageFile, setImageFile] = useState(null);
   const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    onValue(ref(db, "menu"), (snapshot) => {
-      const data = snapshot.val() || {};
-      setMenu(Object.entries(data).map(([id, value]) => ({ id, ...value })));
-    });
-  }, []);
+  const [categoryName, setCategoryName] = useState("");
+  const [editingCategory, setEditingCategory] = useState(null);
+  const [categoryLoading, setCategoryLoading] = useState(false);
 
   const resetForm = () => {
     setEditing(null);
     setName("");
     setPrice("");
+    setSelectedCategoryId("");
     setImageFile(null);
   };
 
@@ -687,7 +775,12 @@ function AdminApp() {
       imageUrl = await getDownloadURL(imageRef);
     }
 
-    const mealData = { name, price: Number(price), image: imageUrl || "" };
+    const mealData = {
+      name,
+      price: Number(price),
+      image: imageUrl || "",
+      categoryId: selectedCategoryId || "",
+    };
     if (editing) {
       update(ref(db, `menu/${editing.id}`), mealData);
     } else {
@@ -702,12 +795,65 @@ function AdminApp() {
     setEditing(meal);
     setName(meal.name);
     setPrice(meal.price);
+    setSelectedCategoryId(meal.categoryId || "");
     setImageFile(null);
   };
 
   const deleteMeal = (meal) => {
     if (window.confirm("Poista annos?")) {
       remove(ref(db, `menu/${meal.id}`));
+    }
+  };
+
+  const resetCategoryForm = () => {
+    setEditingCategory(null);
+    setCategoryName("");
+  };
+
+  const saveCategory = async () => {
+    if (!categoryName.trim()) {
+      alert("Täytä kategorian nimi");
+      return;
+    }
+
+    setCategoryLoading(true);
+    const categoryData = {
+      name: categoryName.trim(),
+      order: editingCategory?.order ?? categories.length,
+    };
+
+    if (editingCategory) {
+      await update(ref(db, `categories/${editingCategory.id}`), categoryData);
+    } else {
+      await push(ref(db, "categories"), categoryData);
+    }
+
+    resetCategoryForm();
+    setCategoryLoading(false);
+  };
+
+  const startEditCategory = (category) => {
+    setEditingCategory(category);
+    setCategoryName(category.name);
+  };
+
+  const deleteCategory = async (category) => {
+    if (!window.confirm("Poista kategoria? Annokset siirtyvät tyhjään kategoriaan.")) {
+      return;
+    }
+
+    const affectedMeals = menu.filter((meal) => meal.categoryId === category.id);
+    if (affectedMeals.length > 0) {
+      const updates = {};
+      affectedMeals.forEach((meal) => {
+        updates[`menu/${meal.id}/categoryId`] = "";
+      });
+      await update(ref(db), updates);
+    }
+
+    await remove(ref(db, `categories/${category.id}`));
+    if (editingCategory?.id === category.id) {
+      resetCategoryForm();
     }
   };
 
@@ -743,6 +889,21 @@ function AdminApp() {
               />
             </div>
             <div className="field-group">
+              <label>Kategoria</label>
+              <select
+                className="select"
+                value={selectedCategoryId}
+                onChange={(event) => setSelectedCategoryId(event.target.value)}
+              >
+                <option value="">Tyhjä kategoria</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field-group">
               <label>Kuva</label>
               <input
                 className="file-input"
@@ -764,27 +925,78 @@ function AdminApp() {
         </div>
 
         <div className="panel">
+          <h2 className="panel-title">Kategoriat</h2>
+          <div className="content-stack">
+            <div className="field-group">
+              <label>Kategorian nimi</label>
+              <input
+                className="input"
+                type="text"
+                placeholder="Esim. Burgerit"
+                value={categoryName}
+                onChange={(event) => setCategoryName(event.target.value)}
+              />
+            </div>
+            <div className="controls-row">
+              <button className="btn btn-primary" onClick={saveCategory} disabled={categoryLoading}>
+                {editingCategory ? "Tallenna kategoria" : "Lisää kategoria"}
+              </button>
+              {editingCategory ? (
+                <button className="btn btn-secondary" onClick={resetCategoryForm}>
+                  Peruuta
+                </button>
+              ) : null}
+            </div>
+            <div className="category-admin-list">
+              {categories.map((category) => (
+                <div key={category.id} className="category-admin-item">
+                  <div>
+                    <div className="category-admin-name">{category.name}</div>
+                    <div className="muted">ID: {category.id}</div>
+                  </div>
+                  <div className="controls-row">
+                    <button className="btn btn-primary btn-small" onClick={() => startEditCategory(category)}>
+                      Muokkaa
+                    </button>
+                    <button className="btn btn-danger btn-small" onClick={() => deleteCategory(category)}>
+                      Poista
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="panel admin-menu-panel">
           <h2 className="panel-title">Ruokalista</h2>
           <p className="muted" style={{ marginTop: -4, marginBottom: 14 }}>
             Kaikki annokset näkyvät tässä samantyyppisinä kortteina kuin tilausten tuotteet kassan puolella.
           </p>
-          <div className="product-grid">
-            {menu.map((meal) => (
-              <div key={meal.id} className="product-card">
-                {meal.image ? (
-                  <img className="product-image" src={meal.image} alt={meal.name} />
-                ) : (
-                  <div className="product-placeholder" />
-                )}
-                <div className="product-name">{meal.name}</div>
-                <div className="product-price">{meal.price}€</div>
-                <div className="content-stack" style={{ gap: 8, marginTop: 12 }}>
-                  <button className="btn btn-primary btn-small" onClick={() => startEdit(meal)}>
-                    Muokkaa
-                  </button>
-                  <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
-                    Poista
-                  </button>
+          <div className="content-stack">
+            {buildCategoryGroups(menu, categories).map((category) => (
+              <div key={category.id}>
+                <h3 className="panel-title">{category.name}</h3>
+                <div className="product-grid">
+                  {category.items.map((meal) => (
+                    <div key={meal.id} className="product-card">
+                      {meal.image ? (
+                        <img className="product-image" src={meal.image} alt={meal.name} />
+                      ) : (
+                        <div className="product-placeholder" />
+                      )}
+                      <div className="product-name">{meal.name}</div>
+                      <div className="product-price">{meal.price}€</div>
+                      <div className="content-stack" style={{ gap: 8, marginTop: 12 }}>
+                        <button className="btn btn-primary btn-small" onClick={() => startEdit(meal)}>
+                          Muokkaa
+                        </button>
+                        <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
+                          Poista
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             ))}
@@ -798,6 +1010,7 @@ function AdminApp() {
 export default function App() {
   const [view, setView] = useState("Kassa");
   const [menu, setMenu] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [adminEntered, setAdminEntered] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const adminPassword = useAdminPassword();
@@ -806,6 +1019,17 @@ export default function App() {
     onValue(ref(db, "menu"), (snapshot) => {
       const data = snapshot.val() || {};
       setMenu(Object.entries(data).map(([id, value]) => ({ id, ...value })));
+    });
+  }, []);
+
+  useEffect(() => {
+    onValue(ref(db, "categories"), (snapshot) => {
+      const data = snapshot.val() || {};
+      setCategories(
+        Object.entries(data)
+          .map(([id, value]) => ({ id, ...value }))
+          .sort((left, right) => (left.order ?? 0) - (right.order ?? 0))
+      );
     });
   }, []);
 
@@ -854,9 +1078,9 @@ export default function App() {
   return (
     <div className="app-shell">
       <Navigation view={view} setView={setView} />
-      {view === "Kassa" ? <CashierApp menu={menu} /> : null}
+      {view === "Kassa" ? <CashierApp menu={menu} categories={categories} /> : null}
       {view === "Keittiö" ? <KitchenApp /> : null}
-      {view === "Admin" && adminEntered ? <AdminApp /> : null}
+      {view === "Admin" && adminEntered ? <AdminApp menu={menu} categories={categories} /> : null}
     </div>
   );
 }

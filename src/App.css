@@ -334,6 +334,31 @@
   gap: 12px;
 }
 
+.menu-category-panel {
+  padding: 14px;
+}
+
+.menu-category-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  cursor: grab;
+}
+
+.menu-category-header .panel-title {
+  margin-bottom: 0;
+}
+
+.menu-category-hint {
+  color: #8b6b59;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 .product-card {
   border: 1px solid rgba(127, 88, 63, 0.18);
   border-radius: 18px;
@@ -397,9 +422,35 @@
 
 .admin-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 380px) minmax(280px, 380px) minmax(0, 1fr);
   gap: 18px;
   align-items: start;
+}
+
+.admin-menu-panel {
+  min-width: 0;
+}
+
+.category-admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.category-admin-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(127, 88, 63, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.category-admin-name {
+  font-weight: 800;
+  color: #2f1b11;
 }
 
 .login-shell {
