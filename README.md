@@ -97,3 +97,4 @@ Admin hallinnoi ruokalistaa, tuotekategorioita, päivän myyntiä, avoimia pöyt
 
 - Pääosa sovelluslogiikasta on tällä hetkellä tiedostossa `src/App.jsx`.
 - Ulkoasut ja näkymien yhteinen visuaalinen kieli ovat tiedostossa `src/App.css`.
+
