@@ -698,9 +698,10 @@ function CashierApp({ menu, categories }) {
                           style={{ marginBottom: 16, ...draggableProvided.draggableProps.style }}
                         >
                           <div className="panel">
-                            <h2 className="panel-title" {...draggableProvided.dragHandleProps}>
-                              {statusTitles[status]}
-                            </h2>
+                            <div className="cashier-section-head" {...draggableProvided.dragHandleProps}>
+                              <h2 className="panel-title">{statusTitles[status]}</h2>
+                              <span className="cashier-section-count">{visibleOrders.length} tilausta</span>
+                            </div>
                             <div className="order-list">
                               {visibleOrders.map((order) => {
                                 const groupedItems = groupOrderItems(order.items);
@@ -708,12 +709,15 @@ function CashierApp({ menu, categories }) {
                                 return (
                                   <div
                                     key={order.id}
-                                    className={`order-card ${status}`}
+                                    className={`order-card cashier-order-card ${status}`}
                                     style={{ background: statusColors[status] || "#fff" }}
                                   >
                                     <div className="order-card-head">
-                                      <span className="order-table">Pöytä {order.table}</span>
-                                      <span className="order-time">
+                                      <div className="cashier-order-main">
+                                        <span className="order-table">Pöytä {order.table}</span>
+                                        <span className="cashier-order-badge">{groupedItems.length} riviä</span>
+                                      </div>
+                                      <span className="order-time cashier-order-time">
                                         {new Date(order.createdAt).toLocaleTimeString([], {
                                           hour: "2-digit",
                                           minute: "2-digit",
@@ -721,7 +725,16 @@ function CashierApp({ menu, categories }) {
                                       </span>
                                     </div>
 
-                                    <div className="order-actions">
+                                    <div className="cashier-items">
+                                      {groupedItems.map((item, itemIndex) => (
+                                        <div key={itemIndex} className="cashier-item-row">
+                                          <span className="cashier-item-qty">{item.qty}x</span>
+                                          <span className="cashier-item-name">{item.meal}</span>
+                                          {item.notes ? <span className="cashier-item-notes">{item.notes}</span> : null}
+                                        </div>
+                                      ))}
+                                    </div>
+                                    <div className="cashier-order-actions">
                                       {["waiting", "cooking", "ready"].includes(status) ? (
                                         <button
                                           className="btn btn-primary btn-small"
@@ -751,13 +764,6 @@ function CashierApp({ menu, categories }) {
                                         </button>
                                       ) : null}
                                     </div>
-
-                                    {groupedItems.map((item, itemIndex) => (
-                                      <div key={itemIndex}>
-                                        {item.meal} x{item.qty}{" "}
-                                        {item.notes ? <em>({item.notes})</em> : null}
-                                      </div>
-                                    ))}
                                   </div>
                                 );
                               })}
