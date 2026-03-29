@@ -35,14 +35,14 @@ const statusTitles = {
   menneet: "Suljetut Pöydät",
 };
 
-const TABLE_OPTIONS = [...Array(20)].map((_, index) => String(index + 1));
 const UNCATEGORIZED_ID = "__uncategorized__";
 const UNCATEGORIZED_LABEL = "Tyhjä kategoria";
 const CATEGORY_DRAG_HINT = "Vedä kategoriaa";
-const ADMIN_TOOL_PANELS = ["menu-list", "daily-sales"];
+const ADMIN_TOOL_PANELS = ["menu-list", "daily-sales", "settings"];
 const ADMIN_PANEL_TITLES = {
   "menu-list": "Ruokalista",
   "daily-sales": "Päivän myynti",
+  settings: "Asetukset",
 };
 const SALES_STAT_ITEMS = ["open", "closed", "deleted"];
 
@@ -128,6 +128,10 @@ function getTimestamp() {
   return Date.now();
 }
 
+function buildTableOptions(tableCount = 20) {
+  return [...Array(Math.max(1, Number(tableCount) || 20))].map((_, index) => String(index + 1));
+}
+
 async function archiveDeletedOrder(order, source = "") {
   if (!order) {
     return;
@@ -184,7 +188,7 @@ function buildCategoryGroups(menu, categories, categoryOrder = [], includeEmpty 
     .filter((category) => includeEmpty || category.items.length > 0);
 }
 
-function ScreenHeader({ title, subtitle }) {
+function ScreenHeader({ title, subtitle, showClock = true }) {
   const [currentTime, setCurrentTime] = useState(() =>
     new Date().toLocaleTimeString([], {
       hour: "2-digit",
@@ -215,9 +219,11 @@ function ScreenHeader({ title, subtitle }) {
         <h1 className="screen-title">{title}</h1>
         {subtitle ? <p className="screen-subtitle">{subtitle}</p> : null}
       </div>
-      <div className="screen-clock" aria-label="Nykyinen kellonaika">
-        {currentTime}
-      </div>
+      {showClock ? (
+        <div className="screen-clock" aria-label="Nykyinen kellonaika">
+          {currentTime}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -278,7 +284,8 @@ const useAdminPassword = () => {
   return password;
 };
 
-function CashierApp({ menu, categories }) {
+function CashierApp({ menu, categories, tableCount }) {
+  const tableOptions = buildTableOptions(tableCount);
   const [table, setTable] = useState("1");
   const [currentOrder, setCurrentOrder] = useState([]);
   const [orders, setOrders] = useState([]);
@@ -307,10 +314,10 @@ function CashierApp({ menu, categories }) {
           return previous;
         }
 
-        return TABLE_OPTIONS.find((candidate) => !occupiedTables.includes(candidate)) || previous;
+        return tableOptions.find((candidate) => !occupiedTables.includes(candidate)) || previous;
       });
     });
-  }, [newOrderMode]);
+  }, [newOrderMode, tableOptions]);
 
   useEffect(() => {
     onValue(ref(db, "pastOrders"), (snapshot) => {
@@ -323,11 +330,11 @@ function CashierApp({ menu, categories }) {
   const activeTables = orders
     .filter((order) => !inactiveStatuses.includes(order.status))
     .map((order) => order.table);
-  const availableTables = TABLE_OPTIONS.filter((candidate) => !activeTables.includes(candidate) || candidate === table);
+  const availableTables = tableOptions.filter((candidate) => !activeTables.includes(candidate) || candidate === table);
   const checkTableAvailable = () =>
     !orders.find((order) => order.table === table && !inactiveStatuses.includes(order.status));
   const getNextAvailableTable = (preferredTable = null) => {
-    const candidateTables = preferredTable ? [preferredTable, ...TABLE_OPTIONS] : TABLE_OPTIONS;
+    const candidateTables = preferredTable ? [preferredTable, ...tableOptions] : tableOptions;
     return candidateTables.find(
       (candidate, index) =>
         candidate &&
@@ -1018,7 +1025,7 @@ function CashierApp({ menu, categories }) {
       <div className="content-stack">
         {!newOrderMode && !hasOpenEdits ? (
           <div className="panel">
-            <div className="controls-row">
+            <div className="controls-row cashier-new-order-row">
               <div className="field-group">
                 <label>Pöytä</label>
                 <select className="select" value={table} onChange={(event) => setTable(event.target.value)}>
@@ -1344,7 +1351,7 @@ function KitchenApp() {
   );
 }
 
-function AdminApp({ menu, categories }) {
+function AdminApp({ menu, categories, tableCount }) {
   const [orders, setOrders] = useState([]);
   const [pastOrders, setPastOrders] = useState([]);
   const [deletedOrders, setDeletedOrders] = useState([]);
@@ -1371,6 +1378,7 @@ function AdminApp({ menu, categories }) {
   const [inlineMealName, setInlineMealName] = useState("");
   const [inlineMealPrice, setInlineMealPrice] = useState("");
   const [inlineMealCategoryId, setInlineMealCategoryId] = useState("");
+  const [tableCountInput, setTableCountInput] = useState(String(tableCount || 20));
   const [salesStatOrder, setSalesStatOrder] = useState(SALES_STAT_ITEMS);
   const [draggingSalesStatId, setDraggingSalesStatId] = useState(null);
 
@@ -1496,6 +1504,13 @@ function AdminApp({ menu, categories }) {
 
     resetCategoryForm();
     setCategoryLoading(false);
+  };
+
+  const saveTableCount = async () => {
+    const nextTableCount = Math.max(1, parseInt(tableCountInput, 10) || 1);
+    await update(ref(db, "settings"), { tableCount: nextTableCount });
+    setTableCountInput(String(nextTableCount));
+    alert("Pöytämäärä tallennettu.");
   };
 
   const startEditCategory = (category) => {
@@ -2334,6 +2349,28 @@ function AdminApp({ menu, categories }) {
         </div>
       </div>
     ),
+    settings: (
+      <div className="panel">
+        <h2 className="panel-title">Asetukset</h2>
+        <div className="panel admin-inline-form">
+          <div className="field-group">
+            <label>Pöytien kokonaismäärä</label>
+            <input
+              className="input"
+              type="number"
+              min={1}
+              value={tableCountInput}
+              onChange={(event) => setTableCountInput(event.target.value)}
+            />
+          </div>
+          <div className="controls-row" style={{ marginTop: 12 }}>
+            <button className="btn btn-save" onClick={saveTableCount}>
+              Tallenna
+            </button>
+          </div>
+        </div>
+      </div>
+    ),
   };
 
   return (
@@ -2385,6 +2422,7 @@ export default function App() {
   const [view, setView] = useState("Kassa");
   const [menu, setMenu] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [tableCount, setTableCount] = useState(20);
   const [adminEntered, setAdminEntered] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const adminPassword = useAdminPassword();
@@ -2411,6 +2449,13 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    onValue(ref(db, "settings/tableCount"), (snapshot) => {
+      const nextValue = snapshot.val();
+      setTableCount(Math.max(1, Number(nextValue) || 20));
+    });
+  }, []);
+
   const enterAdmin = () => {
     if (adminPasswordInput === adminPassword) {
       setAdminEntered(true);
@@ -2429,6 +2474,7 @@ export default function App() {
             <ScreenHeader
               title="Admin"
               subtitle="Kirjaudu sisään hallitaksesi ruokalistaa ja päivän tilauksia."
+              showClock={false}
             />
             <div className="content-stack">
               <div className="field-group">
@@ -2461,9 +2507,9 @@ export default function App() {
   return (
     <div className="app-shell">
       <Navigation view={view} setView={setView} />
-      {view === "Kassa" ? <CashierApp menu={menu} categories={categories} /> : null}
+      {view === "Kassa" ? <CashierApp menu={menu} categories={categories} tableCount={tableCount} /> : null}
       {view === "Keittiö" ? <KitchenApp /> : null}
-      {view === "Admin" && adminEntered ? <AdminApp menu={menu} categories={categories} /> : null}
+      {view === "Admin" && adminEntered ? <AdminApp menu={menu} categories={categories} tableCount={tableCount} /> : null}
     </div>
   );
 }

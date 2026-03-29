@@ -519,6 +519,10 @@
   border-top: 1px solid rgba(62, 37, 20, 0.1);
 }
 
+.cashier-new-order-row {
+  align-items: flex-end;
+}
+
 .cashier-inline-editor {
   margin-top: 14px;
 }
