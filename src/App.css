@@ -328,6 +328,58 @@
   font-weight: 700;
 }
 
+.order-card.is-updated {
+  border: 2px solid rgba(197, 61, 48, 0.55);
+  box-shadow:
+    0 0 0 4px rgba(197, 61, 48, 0.12),
+    0 10px 22px rgba(62, 37, 20, 0.12);
+}
+
+.updated-item-row {
+  margin-top: 6px;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: rgba(197, 61, 48, 0.1);
+  font-weight: 700;
+}
+
+.change-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 10px 0 12px;
+}
+
+.change-group {
+  padding: 8px 10px;
+  border-radius: 12px;
+}
+
+.change-group.added {
+  background: rgba(63, 141, 82, 0.12);
+}
+
+.change-group.removed {
+  background: rgba(197, 61, 48, 0.12);
+}
+
+.change-group.changed {
+  background: rgba(29, 111, 184, 0.12);
+}
+
+.change-group-title {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.change-row {
+  margin-top: 4px;
+  font-weight: 700;
+}
+
 .product-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(140px, 160px));

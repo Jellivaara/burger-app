@@ -59,6 +59,56 @@ function groupOrderItems(items = []) {
   return Object.values(groupedItems);
 }
 
+function summarizeOrderChanges(previousItems = [], nextItems = []) {
+  const previousGrouped = new Map();
+  const nextGrouped = new Map();
+
+  groupOrderItems(previousItems).forEach((item) => {
+    previousGrouped.set(`${item.meal}___${item.notes || ""}`, item);
+  });
+
+  groupOrderItems(nextItems).forEach((item) => {
+    nextGrouped.set(`${item.meal}___${item.notes || ""}`, item);
+  });
+
+  const allKeys = new Set([...previousGrouped.keys(), ...nextGrouped.keys()]);
+  const summary = { added: [], removed: [], changed: [] };
+
+  allKeys.forEach((key) => {
+    const previousItem = previousGrouped.get(key);
+    const nextItem = nextGrouped.get(key);
+
+    if (!previousItem && nextItem) {
+      summary.added.push({
+        meal: nextItem.meal,
+        notes: nextItem.notes || "",
+        qty: nextItem.qty,
+      });
+      return;
+    }
+
+    if (previousItem && !nextItem) {
+      summary.removed.push({
+        meal: previousItem.meal,
+        notes: previousItem.notes || "",
+        qty: previousItem.qty,
+      });
+      return;
+    }
+
+    if (previousItem && nextItem && previousItem.qty !== nextItem.qty) {
+      summary.changed.push({
+        meal: nextItem.meal,
+        notes: nextItem.notes || "",
+        fromQty: previousItem.qty,
+        toQty: nextItem.qty,
+      });
+    }
+  });
+
+  return summary;
+}
+
 function normalizeCategoryId(categoryId) {
   return categoryId || UNCATEGORIZED_ID;
 }
@@ -259,11 +309,15 @@ function CashierApp({ menu, categories }) {
     const existingOrder = editingId ? orders.find((order) => order.id === editingId) : null;
     // eslint-disable-next-line react-hooks/purity
     const now = Date.now();
+    const editSummary = existingOrder
+      ? summarizeOrderChanges(existingOrder.items || [], currentOrder)
+      : null;
     const data = {
       table,
       items: currentOrder,
       status: existingOrder?.status || "waiting",
       updated: Boolean(editingId),
+      editSummary: editingId ? editSummary : null,
       createdAt: existingOrder?.createdAt || now,
       orderIndex: existingOrder?.orderIndex || now,
     };
@@ -777,18 +831,18 @@ function KitchenApp() {
                         const groupedItems = groupOrderItems(order.items);
 
                         return (
-                          <Draggable draggableId={order.id} index={index} key={order.id}>
-                            {(draggableProvided) => (
-                              <div
-                                ref={draggableProvided.innerRef}
-                                {...draggableProvided.draggableProps}
-                                {...draggableProvided.dragHandleProps}
-                                className={`order-card ${status}`}
-                                style={draggableProvided.draggableProps.style}
-                              >
-                                <div className="order-card-head">
-                                  <span className="order-table">Pöytä {order.table}</span>
-                                  <span className="order-time">
+                        <Draggable draggableId={order.id} index={index} key={order.id}>
+                          {(draggableProvided) => (
+                            <div
+                              ref={draggableProvided.innerRef}
+                              {...draggableProvided.draggableProps}
+                              {...draggableProvided.dragHandleProps}
+                              className={`order-card ${status}${order.updated ? " is-updated" : ""}`}
+                              style={draggableProvided.draggableProps.style}
+                            >
+                              <div className="order-card-head">
+                                <span className="order-table">Pöytä {order.table}</span>
+                                <span className="order-time">
                                     {new Date(order.createdAt).toLocaleTimeString([], {
                                       hour: "2-digit",
                                       minute: "2-digit",
@@ -796,26 +850,67 @@ function KitchenApp() {
                                   </span>
                                 </div>
 
-                                {order.updated ? (
-                                  <div className="warning">
-                                    Huom! Tilausta muokattu
-                                    <button
-                                      className="btn btn-secondary btn-small btn-inline"
-                                      onClick={() =>
-                                        update(ref(db, `orders/${order.id}`), { updated: false })
-                                      }
-                                    >
-                                      Kuittaa
-                                    </button>
-                                  </div>
-                                ) : null}
+                              {order.updated ? (
+                                <div className="warning">
+                                  Huom! Tilausta muokattu
+                                  <button
+                                    className="btn btn-secondary btn-small btn-inline"
+                                    onClick={() =>
+                                      update(ref(db, `orders/${order.id}`), {
+                                        updated: false,
+                                        editSummary: null,
+                                      })
+                                    }
+                                  >
+                                    Kuittaa
+                                  </button>
+                                </div>
+                              ) : null}
 
-                                {groupedItems.map((item, itemIndex) => (
-                                  <div key={itemIndex}>
-                                    {item.meal} x{item.qty}{" "}
-                                    {item.notes ? <em>({item.notes})</em> : null}
-                                  </div>
-                                ))}
+                              {order.updated && order.editSummary ? (
+                                <div className="change-summary">
+                                  {order.editSummary.added?.length > 0 ? (
+                                    <div className="change-group added">
+                                      <div className="change-group-title">Lisätty</div>
+                                      {order.editSummary.added.map((item, itemIndex) => (
+                                        <div key={`added-${itemIndex}`} className="change-row">
+                                          + {item.meal} x{item.qty} {item.notes ? <em>({item.notes})</em> : null}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                  {order.editSummary.removed?.length > 0 ? (
+                                    <div className="change-group removed">
+                                      <div className="change-group-title">Poistettu</div>
+                                      {order.editSummary.removed.map((item, itemIndex) => (
+                                        <div key={`removed-${itemIndex}`} className="change-row">
+                                          - {item.meal} x{item.qty} {item.notes ? <em>({item.notes})</em> : null}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                  {order.editSummary.changed?.length > 0 ? (
+                                    <div className="change-group changed">
+                                      <div className="change-group-title">Määrä muuttui</div>
+                                      {order.editSummary.changed.map((item, itemIndex) => (
+                                        <div key={`changed-${itemIndex}`} className="change-row">
+                                          {item.meal} {item.notes ? <em>({item.notes})</em> : null} {item.fromQty} {"->"} {item.toQty}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+
+                              {groupedItems.map((item, itemIndex) => (
+                                <div
+                                  key={itemIndex}
+                                  className={order.updated ? "updated-item-row" : undefined}
+                                >
+                                  {item.meal} x{item.qty}{" "}
+                                  {item.notes ? <em>({item.notes})</em> : null}
+                                </div>
+                              ))}
                               </div>
                             )}
                           </Draggable>
