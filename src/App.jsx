@@ -35,6 +35,21 @@ const statusTitles = {
   menneet: "Menneet tilaukset",
 };
 
+function groupOrderItems(items = []) {
+  const groupedItems = {};
+
+  items.forEach((item) => {
+    const key = `${item.meal}___${item.notes || ""}`;
+    if (!groupedItems[key]) {
+      groupedItems[key] = { ...item };
+    } else {
+      groupedItems[key].qty += item.qty;
+    }
+  });
+
+  return Object.values(groupedItems);
+}
+
 function ScreenHeader({ title, subtitle }) {
   return (
     <div className="screen-header">
@@ -386,15 +401,7 @@ function CashierApp({ menu }) {
                             </h2>
                             <div className="order-list">
                               {visibleOrders.map((order) => {
-                                const itemsGrouped = {};
-                                order.items.forEach((item) => {
-                                  const key = `${item.meal}___${item.notes || ""}`;
-                                  if (!itemsGrouped[key]) {
-                                    itemsGrouped[key] = { ...item };
-                                  } else {
-                                    itemsGrouped[key].qty += item.qty;
-                                  }
-                                });
+                                const groupedItems = groupOrderItems(order.items);
 
                                 return (
                                   <div
@@ -443,7 +450,7 @@ function CashierApp({ menu }) {
                                       ) : null}
                                     </div>
 
-                                    {Object.values(itemsGrouped).map((item, itemIndex) => (
+                                    {groupedItems.map((item, itemIndex) => (
                                       <div key={itemIndex}>
                                         {item.meal} x{item.qty}{" "}
                                         {item.notes ? <em>({item.notes})</em> : null}
@@ -537,49 +544,54 @@ function KitchenApp() {
                   <div className="order-list">
                     {grouped[status]
                       .sort((left, right) => (left.orderIndex || 0) - (right.orderIndex || 0))
-                      .map((order, index) => (
-                        <Draggable draggableId={order.id} index={index} key={order.id}>
-                          {(draggableProvided) => (
-                            <div
-                              ref={draggableProvided.innerRef}
-                              {...draggableProvided.draggableProps}
-                              {...draggableProvided.dragHandleProps}
-                              className={`order-card ${status}`}
-                              style={draggableProvided.draggableProps.style}
-                            >
-                              <div className="order-card-head">
-                                <span className="order-table">Pöytä {order.table}</span>
-                                <span className="order-time">
-                                  {new Date(order.createdAt).toLocaleTimeString([], {
-                                    hour: "2-digit",
-                                    minute: "2-digit",
-                                  })}
-                                </span>
+                      .map((order, index) => {
+                        const groupedItems = groupOrderItems(order.items);
+
+                        return (
+                          <Draggable draggableId={order.id} index={index} key={order.id}>
+                            {(draggableProvided) => (
+                              <div
+                                ref={draggableProvided.innerRef}
+                                {...draggableProvided.draggableProps}
+                                {...draggableProvided.dragHandleProps}
+                                className={`order-card ${status}`}
+                                style={draggableProvided.draggableProps.style}
+                              >
+                                <div className="order-card-head">
+                                  <span className="order-table">Pöytä {order.table}</span>
+                                  <span className="order-time">
+                                    {new Date(order.createdAt).toLocaleTimeString([], {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}
+                                  </span>
+                                </div>
+
+                                {order.updated ? (
+                                  <div className="warning">
+                                    Huom! Tilausta muokattu
+                                    <button
+                                      className="btn btn-secondary btn-small btn-inline"
+                                      onClick={() =>
+                                        update(ref(db, `orders/${order.id}`), { updated: false })
+                                      }
+                                    >
+                                      Kuittaa
+                                    </button>
+                                  </div>
+                                ) : null}
+
+                                {groupedItems.map((item, itemIndex) => (
+                                  <div key={itemIndex}>
+                                    {item.meal} x{item.qty}{" "}
+                                    {item.notes ? <em>({item.notes})</em> : null}
+                                  </div>
+                                ))}
                               </div>
-
-                              {order.updated ? (
-                                <div className="warning">
-                                  Huom! Tilausta muokattu
-                                  <button
-                                    className="btn btn-secondary btn-small btn-inline"
-                                    onClick={() =>
-                                      update(ref(db, `orders/${order.id}`), { updated: false })
-                                    }
-                                  >
-                                    Kuittaa
-                                  </button>
-                                </div>
-                              ) : null}
-
-                              {order.items.map((item, itemIndex) => (
-                                <div key={itemIndex}>
-                                  {item.meal} x{item.qty} {item.notes ? <em>({item.notes})</em> : null}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </Draggable>
-                      ))}
+                            )}
+                          </Draggable>
+                        );
+                      })}
                   </div>
                   {provided.placeholder}
                 </div>
