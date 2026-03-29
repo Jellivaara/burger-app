@@ -817,6 +817,8 @@ function AdminApp({ menu, categories }) {
   const [showMealForm, setShowMealForm] = useState(false);
   const [collapsedPanels, setCollapsedPanels] = useState({});
   const [mealSearch, setMealSearch] = useState("");
+  const [inlineEditingCategoryId, setInlineEditingCategoryId] = useState(null);
+  const [inlineCategoryName, setInlineCategoryName] = useState("");
   const [inlineEditingMealId, setInlineEditingMealId] = useState(null);
   const [inlineMealName, setInlineMealName] = useState("");
   const [inlineMealPrice, setInlineMealPrice] = useState("");
@@ -933,9 +935,26 @@ function AdminApp({ menu, categories }) {
   };
 
   const startEditCategory = (category) => {
-    setEditingCategory(category);
-    setCategoryName(category.name);
-    setShowCategoryForm(true);
+    setInlineEditingCategoryId(category.id);
+    setInlineCategoryName(category.name);
+  };
+
+  const cancelInlineCategoryEdit = () => {
+    setInlineEditingCategoryId(null);
+    setInlineCategoryName("");
+  };
+
+  const saveInlineCategory = async (category) => {
+    if (!inlineCategoryName.trim()) {
+      alert("Täytä kategorian nimi");
+      return;
+    }
+
+    await update(ref(db, `categories/${category.id}`), {
+      name: inlineCategoryName.trim(),
+      order: category.order ?? categories.length,
+    });
+    cancelInlineCategoryEdit();
   };
 
   const deleteCategory = async (category) => {
@@ -953,9 +972,8 @@ function AdminApp({ menu, categories }) {
     }
 
     await remove(ref(db, `categories/${category.id}`));
-    if (editingCategory?.id === category.id) {
-      resetCategoryForm();
-    }
+    if (editingCategory?.id === category.id) resetCategoryForm();
+    if (inlineEditingCategoryId === category.id) cancelInlineCategoryEdit();
   };
 
   const reorderAdminTools = (result) => {
@@ -1228,12 +1246,34 @@ function AdminApp({ menu, categories }) {
             .map((category) => (
             <div key={category.id} className="admin-category-block">
               <div className="menu-category-header">
-                <h3 className="panel-title">{category.name}</h3>
+                {inlineEditingCategoryId === category.id ? (
+                  <div className="content-stack" style={{ gap: 8, flex: 1 }}>
+                    <input
+                      className="input"
+                      type="text"
+                      value={inlineCategoryName}
+                      onChange={(event) => setInlineCategoryName(event.target.value)}
+                      placeholder="Kategorian nimi"
+                    />
+                    <div className="controls-row">
+                      <button className="btn btn-primary btn-small" onClick={() => saveInlineCategory(category)}>
+                        Tallenna
+                      </button>
+                      <button className="btn btn-secondary btn-small" onClick={cancelInlineCategoryEdit}>
+                        Peruuta
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <h3 className="panel-title">{category.name}</h3>
+                )}
                 {category.id !== UNCATEGORIZED_ID ? (
                   <div className="controls-row">
-                    <button className="btn btn-primary btn-small" onClick={() => startEditCategory(category)}>
-                      Muokkaa kategoriaa
-                    </button>
+                    {inlineEditingCategoryId !== category.id ? (
+                      <button className="btn btn-primary btn-small" onClick={() => startEditCategory(category)}>
+                        Muokkaa kategoriaa
+                      </button>
+                    ) : null}
                     <button className="btn btn-danger btn-small" onClick={() => deleteCategory(category)}>
                       Poista
                     </button>
