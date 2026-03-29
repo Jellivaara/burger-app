@@ -38,9 +38,8 @@ const statusTitles = {
 const TABLE_OPTIONS = [...Array(20)].map((_, index) => String(index + 1));
 const UNCATEGORIZED_ID = "__uncategorized__";
 const UNCATEGORIZED_LABEL = "Tyhjä kategoria";
-const ADMIN_TOOL_PANELS = ["menu-list", "daily-sales", "meal-form"];
+const ADMIN_TOOL_PANELS = ["menu-list", "daily-sales"];
 const ADMIN_PANEL_TITLES = {
-  "meal-form": "Lisää uusi annos",
   "menu-list": "Ruokalista",
   "daily-sales": "Päivän myynti",
 };
@@ -780,7 +779,8 @@ function AdminApp({ menu, categories }) {
   const [categoryLoading, setCategoryLoading] = useState(false);
   const [adminToolOrder, setAdminToolOrder] = useState(ADMIN_TOOL_PANELS);
   const [showCategoryForm, setShowCategoryForm] = useState(false);
-  const [collapsedPanels, setCollapsedPanels] = useState({ "meal-form": true });
+  const [showMealForm, setShowMealForm] = useState(false);
+  const [collapsedPanels, setCollapsedPanels] = useState({});
   const [inlineEditingMealId, setInlineEditingMealId] = useState(null);
   const [inlineMealName, setInlineMealName] = useState("");
   const [inlineMealPrice, setInlineMealPrice] = useState("");
@@ -799,6 +799,7 @@ function AdminApp({ menu, categories }) {
     setPrice("");
     setSelectedCategoryId("");
     setImageFile(null);
+    setShowMealForm(false);
   };
 
   const saveMeal = async () => {
@@ -1047,66 +1048,6 @@ function AdminApp({ menu, categories }) {
   };
 
   const adminPanels = {
-    "meal-form": (
-      <div className="panel">
-        <h2 className="panel-title">{editing ? "Muokkaa annosta" : "Lisää uusi annos"}</h2>
-        <div className="content-stack">
-          <div className="field-group">
-            <label>Nimi</label>
-            <input
-              className="input"
-              type="text"
-              placeholder="Esim. Tuplajuustoburger"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
-          </div>
-          <div className="field-group">
-            <label>Hinta</label>
-            <input
-              className="input"
-              type="number"
-              placeholder="0"
-              value={price}
-              onChange={(event) => setPrice(event.target.value)}
-            />
-          </div>
-          <div className="field-group">
-            <label>Kategoria</label>
-            <select
-              className="select"
-              value={selectedCategoryId}
-              onChange={(event) => setSelectedCategoryId(event.target.value)}
-            >
-              <option value="">Tyhjä kategoria</option>
-              {categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field-group">
-            <label>Kuva</label>
-            <input
-              className="file-input"
-              type="file"
-              onChange={(event) => setImageFile(event.target.files[0])}
-            />
-          </div>
-          <div className="controls-row">
-            <button className="btn btn-primary" onClick={saveMeal} disabled={loading}>
-              {editing ? "Tallenna muutokset" : "Lisää annos"}
-            </button>
-            {editing ? (
-              <button className="btn btn-secondary" onClick={resetForm}>
-                Peruuta
-              </button>
-            ) : null}
-          </div>
-        </div>
-      </div>
-    ),
     "menu-list": (
       <div className="panel admin-menu-panel">
         <div className="menu-category-header">
@@ -1126,7 +1067,79 @@ function AdminApp({ menu, categories }) {
           >
             Uusi kategoria
           </button>
+          <button
+            className="btn btn-secondary btn-small"
+            onClick={() => {
+              setEditing(null);
+              setName("");
+              setPrice("");
+              setSelectedCategoryId("");
+              setImageFile(null);
+              setInlineEditingMealId(null);
+              setShowMealForm(true);
+            }}
+          >
+            Lisää uusi annos
+          </button>
         </div>
+        {showMealForm ? (
+          <div className="panel admin-inline-form">
+            <h3 className="panel-title">{editing ? "Muokkaa annosta" : "Lisää uusi annos"}</h3>
+            <div className="content-stack">
+              <div className="field-group">
+                <label>Nimi</label>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="Esim. Tuplajuustoburger"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
+              </div>
+              <div className="field-group">
+                <label>Hinta</label>
+                <input
+                  className="input"
+                  type="number"
+                  placeholder="0"
+                  value={price}
+                  onChange={(event) => setPrice(event.target.value)}
+                />
+              </div>
+              <div className="field-group">
+                <label>Kategoria</label>
+                <select
+                  className="select"
+                  value={selectedCategoryId}
+                  onChange={(event) => setSelectedCategoryId(event.target.value)}
+                >
+                  <option value="">Tyhjä kategoria</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field-group">
+                <label>Kuva</label>
+                <input
+                  className="file-input"
+                  type="file"
+                  onChange={(event) => setImageFile(event.target.files[0])}
+                />
+              </div>
+              <div className="controls-row">
+                <button className="btn btn-primary" onClick={saveMeal} disabled={loading}>
+                  {editing ? "Tallenna muutokset" : "Lisää annos"}
+                </button>
+                <button className="btn btn-secondary" onClick={resetForm}>
+                  Peruuta
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
         {showCategoryForm ? (
           <div className="panel admin-inline-form">
             <div className="field-group">
@@ -1230,7 +1243,7 @@ function AdminApp({ menu, categories }) {
                                 <div className="product-price">{meal.price}€</div>
                                 <div className="content-stack" style={{ gap: 8, marginTop: 12 }}>
                                   <button className="btn btn-primary btn-small" onClick={() => startInlineEdit(meal)}>
-                                    Muokkaa kortissa
+                                    Muokkaa
                                   </button>
                                   <button className="btn btn-danger btn-small" onClick={() => deleteMeal(meal)}>
                                     Poista
