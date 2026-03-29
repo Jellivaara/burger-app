@@ -1379,6 +1379,7 @@ function AdminApp({ menu, categories, tableCount }) {
   const [inlineMealPrice, setInlineMealPrice] = useState("");
   const [inlineMealCategoryId, setInlineMealCategoryId] = useState("");
   const [tableCountInput, setTableCountInput] = useState(String(tableCount || 20));
+  const [editingTableCount, setEditingTableCount] = useState(false);
   const [salesStatOrder, setSalesStatOrder] = useState(SALES_STAT_ITEMS);
   const [draggingSalesStatId, setDraggingSalesStatId] = useState(null);
 
@@ -1510,7 +1511,17 @@ function AdminApp({ menu, categories, tableCount }) {
     const nextTableCount = Math.max(1, parseInt(tableCountInput, 10) || 1);
     await update(ref(db, "settings"), { tableCount: nextTableCount });
     setTableCountInput(String(nextTableCount));
-    alert("Pöytämäärä tallennettu.");
+    setEditingTableCount(false);
+  };
+
+  const startEditTableCount = () => {
+    setTableCountInput(String(tableCount || 20));
+    setEditingTableCount(true);
+  };
+
+  const cancelTableCountEdit = () => {
+    setTableCountInput(String(tableCount || 20));
+    setEditingTableCount(false);
   };
 
   const startEditCategory = (category) => {
@@ -2353,21 +2364,39 @@ function AdminApp({ menu, categories, tableCount }) {
       <div className="panel">
         <h2 className="panel-title">Asetukset</h2>
         <div className="panel admin-inline-form">
-          <div className="field-group">
-            <label>Pöytien kokonaismäärä</label>
-            <input
-              className="input"
-              type="number"
-              min={1}
-              value={tableCountInput}
-              onChange={(event) => setTableCountInput(event.target.value)}
-            />
-          </div>
-          <div className="controls-row" style={{ marginTop: 12 }}>
-            <button className="btn btn-save" onClick={saveTableCount}>
-              Tallenna
-            </button>
-          </div>
+          {!editingTableCount ? (
+            <div className="content-stack" style={{ gap: 12 }}>
+              <p className="muted" style={{ margin: 0 }}>
+                Pöytien kokonaismäärä: {tableCount}
+              </p>
+              <div className="controls-row">
+                <button className="btn btn-primary btn-small" onClick={startEditTableCount}>
+                  Muokkaa
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              <div className="field-group">
+                <label>Pöytien kokonaismäärä</label>
+                <input
+                  className="input"
+                  type="number"
+                  min={1}
+                  value={tableCountInput}
+                  onChange={(event) => setTableCountInput(event.target.value)}
+                />
+              </div>
+              <div className="controls-row" style={{ marginTop: 12 }}>
+                <button className="btn btn-save" onClick={saveTableCount}>
+                  Tallenna
+                </button>
+                <button className="btn btn-secondary" onClick={cancelTableCountEdit}>
+                  Peruuta
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     ),
