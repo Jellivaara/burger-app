@@ -400,12 +400,16 @@ function CashierApp({ menu }) {
                     </button>
                   </div>
                 ))}
+                {editingId && currentOrder.length > 0 ? (
+                  <div className="order-item-row" style={{ marginTop: 8 }}>
+                    <div className="order-item-main" />
+                    <div className="order-item-notes" />
+                    <button className="btn btn-danger btn-small" onClick={deleteWholeOrder}>
+                      Poista koko tilaus
+                    </button>
+                  </div>
+                ) : null}
               </div>
-              {editingId && currentOrder.length > 0 ? (
-                <button className="btn btn-danger" onClick={deleteWholeOrder} style={{ marginTop: 12 }}>
-                  Poista koko tilaus
-                </button>
-              ) : null}
             </div>
 
             <div className="controls-row" style={{ marginTop: 18 }}>
