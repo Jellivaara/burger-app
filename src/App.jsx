@@ -1,4 +1,4 @@
-import React, { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useRef, useState } from "react";
 import { initializeApp } from "firebase/app";
 import { getDatabase, onValue, push, ref, remove, update } from "firebase/database";
 import { getDownloadURL, getStorage, ref as sRef, uploadBytes } from "firebase/storage";
@@ -19,6 +19,7 @@ const app = initializeApp(firebaseConfig);
 const db = getDatabase(app);
 const storage = getStorage(app);
 
+// Status visuals for order cards by state.
 const statusColors = {
   waiting: "#f9f871",
   cooking: "#ffd580",
@@ -27,6 +28,7 @@ const statusColors = {
   menneet: "#ddd",
 };
 
+// Human-readable titles for order columns.
 const statusTitles = {
   waiting: "Odottaa",
   cooking: "Työn alla",
@@ -44,9 +46,12 @@ const ADMIN_PANEL_TITLES = {
   "daily-sales": "Päivän myynti",
   settings: "Asetukset",
 };
+// Default order for daily stats cards in admin.
 const SALES_STAT_ITEMS = ["open", "closed", "deleted"];
 const MAX_ORDER_ITEMS_PREVIEW = 12;
+const URGENT_ORDER_MINUTES = 20;
 
+// Group identical items (same meal + notes) and sum quantities.
 function groupOrderItems(items = []) {
   const groupedItems = {};
 
@@ -62,6 +67,7 @@ function groupOrderItems(items = []) {
   return Object.values(groupedItems);
 }
 
+// Build a diff summary between two item lists (added/removed/qty changed).
 function summarizeOrderChanges(previousItems = [], nextItems = []) {
   const previousGrouped = new Map();
   const nextGrouped = new Map();
@@ -112,6 +118,7 @@ function summarizeOrderChanges(previousItems = [], nextItems = []) {
   return summary;
 }
 
+// Fast boolean check for any changes in the summary.
 function hasOrderChanges(summary) {
   return Boolean(
     summary &&
@@ -121,30 +128,37 @@ function hasOrderChanges(summary) {
   );
 }
 
+// Ensure empty categories map to a stable uncategorized id.
 function normalizeCategoryId(categoryId) {
   return categoryId || UNCATEGORIZED_ID;
 }
 
+// Timestamp helper (centralized for easier testing/consistency).
 function getTimestamp() {
   return Date.now();
 }
 
+// Build table number list based on configured table count.
 function buildTableOptions(tableCount = 20) {
   return [...Array(Math.max(1, Number(tableCount) || 20))].map((_, index) => String(index + 1));
 }
 
+
+// Archive deleted orders for admin reporting and undo.
 async function archiveDeletedOrder(order, source = "") {
   if (!order) {
-    return;
+    return null;
   }
 
-  await push(ref(db, "deletedOrders"), {
+  const result = await push(ref(db, "deletedOrders"), {
     ...order,
     deletedAt: getTimestamp(),
     deleteSource: source,
   });
+  return result.key;
 }
 
+// Compare timestamps by local day (used in daily reports).
 function isSameLocalDay(timestamp, reference = Date.now()) {
   const target = new Date(timestamp);
   const current = new Date(reference);
@@ -155,6 +169,7 @@ function isSameLocalDay(timestamp, reference = Date.now()) {
   );
 }
 
+// Build category groups with ordering and uncategorized handling.
 function buildCategoryGroups(menu, categories, categoryOrder = [], includeEmpty = false) {
   const categoryMap = new Map(categories.map((category) => [category.id, category]));
   const baseCategories = [
@@ -195,15 +210,29 @@ function ToastHost({ toasts, onDismiss }) {
       {toasts.map((toast) => (
         <div key={toast.id} className={`toast toast-${toast.type || "info"}`}>
           <span>{toast.message}</span>
-          <button className="toast-close" onClick={() => onDismiss(toast.id)}>
-            Sulje
-          </button>
+          <div className="toast-actions">
+            {toast.actionLabel && toast.onAction ? (
+              <button
+                className="toast-action"
+                onClick={() => {
+                  toast.onAction();
+                  onDismiss(toast.id);
+                }}
+              >
+                {toast.actionLabel}
+              </button>
+            ) : null}
+            <button className="toast-close" onClick={() => onDismiss(toast.id)}>
+              Sulje
+            </button>
+          </div>
         </div>
       ))}
     </div>
   );
 }
 
+// Shared screen header with optional live clock.
 function ScreenHeader({ title, subtitle, showClock = true }) {
   const [currentTime, setCurrentTime] = useState(() =>
     new Date().toLocaleTimeString([], {
@@ -244,6 +273,7 @@ function ScreenHeader({ title, subtitle, showClock = true }) {
   );
 }
 
+// Top navigation dropdown between views.
 function Navigation({ view, setView }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef(null);
@@ -300,6 +330,7 @@ const useAdminPassword = () => {
   return password;
 };
 
+// Cashier view: create, edit, and move orders.
 function CashierApp({ menu, categories, tableCount, showToast }) {
   const tableOptions = buildTableOptions(tableCount);
   const [table, setTable] = useState("1");
@@ -311,10 +342,11 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
   const [orderChanged, setOrderChanged] = useState(false);
   const [menuCategoryOrder, setMenuCategoryOrder] = useState([]);
   const [mealSearch, setMealSearch] = useState("");
-  const deferredMealSearch = useDeferredValue(mealSearch);
   const [showCategories, setShowCategories] = useState(false);
   const [collapsedCategoryIds, setCollapsedCategoryIds] = useState({});
   const [expandedOrderItems, setExpandedOrderItems] = useState({});
+  const [compactMode, setCompactMode] = useState(false);
+  const [tableNote, setTableNote] = useState("");
   const editRef = useRef(null);
 
   useEffect(() => {
@@ -391,6 +423,7 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
     }
 
     setCurrentOrder([]);
+    setTableNote("");
     setNewOrderMode(true);
     setOrderChanged(false);
     setMealSearch("");
@@ -411,6 +444,7 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
       status: "waiting",
       updated: false,
       editSummary: null,
+      tableNote,
       createdAt: now,
       orderIndex: now,
     };
@@ -418,6 +452,7 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
     push(ref(db, "orders"), data);
     const nextAvailableTable = getNextAvailableTable();
     setCurrentOrder([]);
+    setTableNote("");
     setNewOrderMode(false);
     setOrderChanged(false);
     setMealSearch("");
@@ -428,13 +463,16 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
 
   const cancelEdit = () => {
     setCurrentOrder([]);
+    setTableNote("");
     setNewOrderMode(false);
     setOrderChanged(false);
     setMealSearch("");
   };
 
+  // Initialize edit state for a specific order.
   const createEditingState = (order) => ({
     table: order.table,
+    tableNote: order.tableNote || "",
     currentOrder: order.items || [],
     orderChanged: false,
     mealSearch: "",
@@ -443,6 +481,7 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
     menuCategoryOrder: [],
   });
 
+  // Begin editing an existing order (with safety confirm in later stages).
   const startEditOrder = (order) => {
     if (
       ["cooking", "ready"].includes(order.status) &&
@@ -462,6 +501,7 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
     setTimeout(() => editRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
   };
 
+  // Add a menu item into the current new order.
   const addToOrderFromMenu = (mealId) => {
     const mealObj = menu.find((meal) => meal.id === mealId);
     if (!mealObj) {
@@ -477,6 +517,7 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
     });
   };
 
+  // Move a finished table to pastOrders and free it.
   const closeTable = (order) => {
     if (
       window.confirm(
@@ -536,7 +577,7 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
     }));
   };
 
-  const normalizedMealSearch = deferredMealSearch.trim().toLowerCase();
+  const normalizedMealSearch = mealSearch.trim().toLowerCase();
   const hasOpenEdits = Object.keys(editingOrders).length > 0;
   const categoryNameMap = new Map(
     categories.map((category) => [category.id, category.name.toLowerCase()])
@@ -576,6 +617,7 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
     });
   };
 
+  // Save edits for an existing order (including table change diff).
   const saveEditingOrder = (orderId) => {
     const editState = editingOrders[orderId];
     if (!editState) return;
@@ -601,14 +643,17 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
       editSummary.tableChange = { from: existingOrder.table, to: editState.table };
     }
     const hasChanges = hasOrderChanges(editSummary) || hasTableChange;
+    const updatedAt = hasChanges ? getTimestamp() : existingOrder.updatedAt || null;
 
     const data = {
       table: editState.table,
+      tableNote: editState.tableNote || "",
       items: editState.currentOrder,
       status: existingOrder.status || "waiting",
       updated: hasChanges,
       editSummary: hasChanges ? editSummary : null,
       editBaseItems: hasChanges ? baselineItems : null,
+      updatedAt,
       createdAt: existingOrder.createdAt,
       orderIndex: existingOrder.orderIndex,
     };
@@ -620,10 +665,20 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
   const deleteEditingOrder = async (orderId) => {
     if (window.confirm("Oletko varma että haluat poistaa koko tilauksen? Tämä poistaa sen pysyvästi.")) {
       const order = orders.find((candidate) => candidate.id === orderId);
-      await archiveDeletedOrder(order, "cashier");
+      const deletedId = await archiveDeletedOrder(order, "cashier");
       await remove(ref(db, `orders/${orderId}`));
       cancelEditingOrder(orderId);
-      showToast?.("Tilaus poistettu.", "info");
+      showToast?.("Tilaus poistettu.", "info", "Peru", async () => {
+        if (!order) return;
+        if (!checkEditTableAvailable(orderId, order.table)) {
+          showToast?.("Pöytä varattu, ei voi palauttaa.", "warning");
+          return;
+        }
+        if (deletedId) {
+          await remove(ref(db, `deletedOrders/${deletedId}`));
+        }
+        await push(ref(db, "orders"), order);
+      });
     }
   };
 
@@ -696,13 +751,20 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
     <>
       <div className="field-group" style={{ marginBottom: 16 }}>
         <label>Hae annosta tai kategoriaa</label>
-        <input
-          className="input"
-          type="text"
-          placeholder="Kirjoita annoksen tai kategorian nimi..."
-          value={mealSearch}
-          onChange={(event) => startTransition(() => setMealSearch(event.target.value))}
-        />
+        <div className="search-field">
+          <input
+            className="input"
+            type="text"
+            placeholder="Kirjoita annoksen tai kategorian nimi..."
+            value={mealSearch}
+            onChange={(event) => setMealSearch(event.target.value)}
+          />
+          {mealSearch ? (
+            <button className="search-clear" onClick={() => setMealSearch("")}>
+              ×
+            </button>
+          ) : null}
+        </div>
       </div>
       <div className="controls-row" style={{ marginBottom: 16 }}>
         <button className="btn btn-secondary btn-small" onClick={() => setShowCategories((current) => !current)}>
@@ -905,7 +967,20 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
         </h2>
       ) : null}
 
-      {renderCashierMealPicker()}
+        {renderCashierMealPicker()}
+
+      <div className="panel" style={{ marginTop: 18, padding: 16 }}>
+        <div className="field-group">
+          <label>Pöydän lisätieto</label>
+          <input
+            className="input"
+            type="text"
+            placeholder="Esim. allergiat, kiire, VIP..."
+            value={tableNote}
+            onChange={(event) => setTableNote(event.target.value)}
+          />
+        </div>
+      </div>
 
       <div className="panel" style={{ marginTop: 18, padding: 16 }}>
         <h3 className="panel-title">Tilauksen annokset</h3>
@@ -972,11 +1047,12 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
     </div>
   );
 
+  // Inline editor UI for a specific order card.
   const renderEditingOrderEditor = (orderId, editState) => (
     <div ref={editRef}>
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="field-group">
-          <label>Pöytä</label>
+          <label>Vaihda pöytä</label>
           <select
             className="select"
             value={editState.table}
@@ -994,6 +1070,22 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
               </option>
             ))}
           </select>
+        </div>
+        <div className="field-group" style={{ marginTop: 12 }}>
+          <label>Pöydän lisätieto</label>
+          <input
+            className="input"
+            type="text"
+            placeholder="Esim. allergiat, kiire, VIP..."
+            value={editState.tableNote || ""}
+            onChange={(event) =>
+              updateEditingOrderState(orderId, {
+                ...editState,
+                tableNote: event.target.value,
+                orderChanged: true,
+              })
+            }
+          />
         </div>
       </div>
       {renderEditingMealPicker(orderId, editState)}
@@ -1099,6 +1191,9 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
               <button className="btn btn-primary" onClick={startNewOrder}>
                 Uusi tilaus
               </button>
+              <button className="btn btn-secondary btn-small" onClick={() => setCompactMode((current) => !current)}>
+                {compactMode ? "Normaali näkymä" : "Tiivis näkymä"}
+              </button>
             </div>
           </div>
         ) : null}
@@ -1142,7 +1237,7 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
                                 return (
                                   <div
                                     key={order.id}
-                                    className={`order-card cashier-order-card ${status}`}
+                                    className={`order-card cashier-order-card ${status}${compactMode ? " compact" : ""}`}
                                     style={{ background: statusColors[status] || "#fff" }}
                                   >
                                     {!editState ? (
@@ -1160,6 +1255,9 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
                                             })}
                                           </span>
                                         </div>
+                                        {order.tableNote ? (
+                                          <div className="order-note">Lisätieto: {order.tableNote}</div>
+                                        ) : null}
 
                                         <div className="cashier-items">
                                           {(expandedOrderItems[order.id]
@@ -1264,6 +1362,7 @@ function CashierApp({ menu, categories, tableCount, showToast }) {
   );
 }
 
+// Kitchen view: production flow and change summary.
 function KitchenApp() {
   const [orders, setOrders] = useState([]);
   const [expandedOrderItems, setExpandedOrderItems] = useState({});
@@ -1356,6 +1455,7 @@ function KitchenApp() {
                                   <span className="order-table">Pöytä {order.table}</span>
                                   <span className="kitchen-order-badge">{groupedItems.length} riviä</span>
                                 </div>
+                                <div className="order-time-stack">
                                   <span className="order-time kitchen-order-time">
                                     {new Date(order.createdAt).toLocaleTimeString([], {
                                       hour: "2-digit",
@@ -1363,7 +1463,21 @@ function KitchenApp() {
                                       hour12: false,
                                     })}
                                   </span>
+                                  {order.updatedAt ? (
+                                    <span className="order-updated-time">
+                                      Päivitetty{" "}
+                                      {new Date(order.updatedAt).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        hour12: false,
+                                      })}
+                                    </span>
+                                  ) : null}
+                                </div>
                               </div>
+                              {order.tableNote ? (
+                                <div className="order-note">Lisätieto: {order.tableNote}</div>
+                              ) : null}
 
                               {order.updated ? (
                                 <div className="warning">
@@ -1486,6 +1600,7 @@ function KitchenApp() {
   );
 }
 
+// Admin view: menu management, daily sales, and settings.
 function AdminApp({ menu, categories, tableCount, showToast }) {
   const [orders, setOrders] = useState([]);
   const [pastOrders, setPastOrders] = useState([]);
@@ -1643,6 +1758,7 @@ function AdminApp({ menu, categories, tableCount, showToast }) {
     setCategoryLoading(false);
   };
 
+  // Persist table count in shared settings.
   const saveTableCount = async () => {
     const nextTableCount = Math.max(1, parseInt(tableCountInput, 10) || 1);
     await update(ref(db, "settings"), { tableCount: nextTableCount });
@@ -1937,6 +2053,7 @@ function AdminApp({ menu, categories, tableCount, showToast }) {
     }));
   };
 
+  // Drag-and-drop reorder for daily stats cards.
   const handleSalesStatDrop = (targetId) => {
     if (!draggingSalesStatId || draggingSalesStatId === targetId) {
       setDraggingSalesStatId(null);
@@ -1959,6 +2076,7 @@ function AdminApp({ menu, categories, tableCount, showToast }) {
     setDraggingSalesStatId(null);
   };
 
+  // Lazily render admin panels only when opened.
   const renderAdminPanel = (panelId) => {
     if (panelId === "menu-list") {
       return (
@@ -2077,13 +2195,20 @@ function AdminApp({ menu, categories, tableCount, showToast }) {
         ) : null}
         <div className="field-group" style={{ marginBottom: 16 }}>
           <label>Hae annosta tai kategoriaa</label>
-          <input
-            className="input"
-            type="text"
-            placeholder="Kirjoita annoksen tai kategorian nimi..."
-            value={mealSearch}
-          onChange={(event) => startTransition(() => setMealSearch(event.target.value))}
-          />
+          <div className="search-field">
+            <input
+              className="input"
+              type="text"
+              placeholder="Kirjoita annoksen tai kategorian nimi..."
+              value={mealSearch}
+              onChange={(event) => setMealSearch(event.target.value)}
+            />
+            {mealSearch ? (
+              <button className="search-clear" onClick={() => setMealSearch("")}>
+                ×
+              </button>
+            ) : null}
+          </div>
         </div>
         <div className="controls-row" style={{ marginBottom: 16 }}>
           <button className="btn btn-secondary btn-small" onClick={() => setShowCategories((current) => !current)}>
@@ -2404,21 +2529,24 @@ function AdminApp({ menu, categories, tableCount, showToast }) {
               <div className="sales-events">
                 {openOrders.map((order) => (
                   <div key={order.id} className={`order-card ${order.status || "waiting"} cashier-order-card`}>
-                    <div className="order-card-head">
-                      <div className="cashier-order-main">
-                        <span className="order-table">Pöytä {order.table}</span>
-                        <span className="cashier-order-badge">
-                          {groupOrderItems(order.items || []).length} riviä
-                        </span>
-                      </div>
-                      <div className="cashier-order-time">
-                        {new Date(order.createdAt || 0).toLocaleTimeString([], {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                          hour12: false,
-                        })}
-                      </div>
-                    </div>
+                                  <div className="order-card-head">
+                                    <div className="cashier-order-main">
+                                      <span className="order-table">Pöytä {order.table}</span>
+                                      <span className="cashier-order-badge">
+                                        {groupOrderItems(order.items || []).length} riviä
+                                      </span>
+                                    </div>
+                                    <div className="cashier-order-time">
+                                      {new Date(order.createdAt || 0).toLocaleTimeString([], {
+                                        hour: "2-digit",
+                                        minute: "2-digit",
+                                        hour12: false,
+                                      })}
+                                    </div>
+                                  </div>
+                                  {order.tableNote ? (
+                                    <div className="order-note">Lisätieto: {order.tableNote}</div>
+                                  ) : null}
                     <div className="cashier-items">
                       {groupOrderItems(order.items || []).map((item, index) => (
                         <div key={index} className="cashier-item-row">
@@ -2596,6 +2724,7 @@ function AdminApp({ menu, categories, tableCount, showToast }) {
   );
 }
 
+// Root app: shared data loading and view switching.
 export default function App() {
   const [view, setView] = useState("Kassa");
   const [menu, setMenu] = useState([]);
