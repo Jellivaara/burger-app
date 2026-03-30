@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
 import { initializeApp } from "firebase/app";
 import { getDatabase, onValue, push, ref, remove, update } from "firebase/database";
 import { getDownloadURL, getStorage, ref as sRef, uploadBytes } from "firebase/storage";
@@ -45,6 +45,7 @@ const ADMIN_PANEL_TITLES = {
   settings: "Asetukset",
 };
 const SALES_STAT_ITEMS = ["open", "closed", "deleted"];
+const MAX_ORDER_ITEMS_PREVIEW = 12;
 
 function groupOrderItems(items = []) {
   const groupedItems = {};
@@ -188,6 +189,21 @@ function buildCategoryGroups(menu, categories, categoryOrder = [], includeEmpty 
     .filter((category) => includeEmpty || category.items.length > 0);
 }
 
+function ToastHost({ toasts, onDismiss }) {
+  return (
+    <div className="toast-host" aria-live="polite">
+      {toasts.map((toast) => (
+        <div key={toast.id} className={`toast toast-${toast.type || "info"}`}>
+          <span>{toast.message}</span>
+          <button className="toast-close" onClick={() => onDismiss(toast.id)}>
+            Sulje
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function ScreenHeader({ title, subtitle, showClock = true }) {
   const [currentTime, setCurrentTime] = useState(() =>
     new Date().toLocaleTimeString([], {
@@ -284,7 +300,7 @@ const useAdminPassword = () => {
   return password;
 };
 
-function CashierApp({ menu, categories, tableCount }) {
+function CashierApp({ menu, categories, tableCount, showToast }) {
   const tableOptions = buildTableOptions(tableCount);
   const [table, setTable] = useState("1");
   const [currentOrder, setCurrentOrder] = useState([]);
@@ -295,8 +311,10 @@ function CashierApp({ menu, categories, tableCount }) {
   const [orderChanged, setOrderChanged] = useState(false);
   const [menuCategoryOrder, setMenuCategoryOrder] = useState([]);
   const [mealSearch, setMealSearch] = useState("");
+  const deferredMealSearch = useDeferredValue(mealSearch);
   const [showCategories, setShowCategories] = useState(false);
   const [collapsedCategoryIds, setCollapsedCategoryIds] = useState({});
+  const [expandedOrderItems, setExpandedOrderItems] = useState({});
   const editRef = useRef(null);
 
   useEffect(() => {
@@ -333,6 +351,16 @@ function CashierApp({ menu, categories, tableCount }) {
   const availableTables = tableOptions.filter((candidate) => !activeTables.includes(candidate) || candidate === table);
   const checkTableAvailable = () =>
     !orders.find((order) => order.table === table && !inactiveStatuses.includes(order.status));
+  const getAvailableTablesForEdit = (orderId, currentTable) => {
+    const occupiedTables = orders
+      .filter((order) => order.id !== orderId && !inactiveStatuses.includes(order.status))
+      .map((order) => order.table);
+    return tableOptions.filter((candidate) => !occupiedTables.includes(candidate) || candidate === currentTable);
+  };
+  const checkEditTableAvailable = (orderId, targetTable) =>
+    !orders.find(
+      (order) => order.id !== orderId && order.table === targetTable && !inactiveStatuses.includes(order.status)
+    );
   const getNextAvailableTable = (preferredTable = null) => {
     const candidateTables = preferredTable ? [preferredTable, ...tableOptions] : tableOptions;
     return candidateTables.find(
@@ -358,7 +386,7 @@ function CashierApp({ menu, categories, tableCount }) {
 
   const startNewOrder = () => {
     if (!checkTableAvailable()) {
-      alert("Pöytä on jo varattu aktiivisella tilauksella!");
+      showToast?.("Pöytä on jo varattu aktiivisella tilauksella!", "warning");
       return;
     }
 
@@ -371,7 +399,7 @@ function CashierApp({ menu, categories, tableCount }) {
 
   const saveOrder = () => {
     if (currentOrder.length === 0) {
-      alert("Tilauksessa ei ole annoksia!");
+      showToast?.("Tilauksessa ei ole annoksia!", "warning");
       return;
     }
 
@@ -477,6 +505,7 @@ function CashierApp({ menu, categories, tableCount }) {
     accumulator[status] = sourceOrders.sort((left, right) => (left.orderIndex || 0) - (right.orderIndex || 0));
     return accumulator;
   }, {});
+  const [expandedCashierColumns, setExpandedCashierColumns] = useState({});
 
   const onCategoryDragEnd = (result) => {
     if (!result.destination) {
@@ -507,7 +536,7 @@ function CashierApp({ menu, categories, tableCount }) {
     }));
   };
 
-  const normalizedMealSearch = mealSearch.trim().toLowerCase();
+  const normalizedMealSearch = deferredMealSearch.trim().toLowerCase();
   const hasOpenEdits = Object.keys(editingOrders).length > 0;
   const categoryNameMap = new Map(
     categories.map((category) => [category.id, category.name.toLowerCase()])
@@ -550,8 +579,12 @@ function CashierApp({ menu, categories, tableCount }) {
   const saveEditingOrder = (orderId) => {
     const editState = editingOrders[orderId];
     if (!editState) return;
+    if (!checkEditTableAvailable(orderId, editState.table)) {
+      showToast?.("Valittu pöytä on jo varattu aktiivisella tilauksella!", "warning");
+      return;
+    }
     if (editState.currentOrder.length === 0) {
-      alert("Tilauksessa ei ole annoksia!");
+      showToast?.("Tilauksessa ei ole annoksia!", "warning");
       return;
     }
 
@@ -563,7 +596,11 @@ function CashierApp({ menu, categories, tableCount }) {
         ? existingOrder.editBaseItems
         : existingOrder.items || [];
     const editSummary = summarizeOrderChanges(baselineItems, editState.currentOrder);
-    const hasChanges = hasOrderChanges(editSummary);
+    const hasTableChange = editState.table !== existingOrder.table;
+    if (hasTableChange) {
+      editSummary.tableChange = { from: existingOrder.table, to: editState.table };
+    }
+    const hasChanges = hasOrderChanges(editSummary) || hasTableChange;
 
     const data = {
       table: editState.table,
@@ -586,6 +623,7 @@ function CashierApp({ menu, categories, tableCount }) {
       await archiveDeletedOrder(order, "cashier");
       await remove(ref(db, `orders/${orderId}`));
       cancelEditingOrder(orderId);
+      showToast?.("Tilaus poistettu.", "info");
     }
   };
 
@@ -663,7 +701,7 @@ function CashierApp({ menu, categories, tableCount }) {
           type="text"
           placeholder="Kirjoita annoksen tai kategorian nimi..."
           value={mealSearch}
-          onChange={(event) => setMealSearch(event.target.value)}
+          onChange={(event) => startTransition(() => setMealSearch(event.target.value))}
         />
       </div>
       <div className="controls-row" style={{ marginBottom: 16 }}>
@@ -936,6 +974,28 @@ function CashierApp({ menu, categories, tableCount }) {
 
   const renderEditingOrderEditor = (orderId, editState) => (
     <div ref={editRef}>
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <div className="field-group">
+          <label>Pöytä</label>
+          <select
+            className="select"
+            value={editState.table}
+            onChange={(event) =>
+              updateEditingOrderState(orderId, {
+                ...editState,
+                table: event.target.value,
+                orderChanged: true,
+              })
+            }
+          >
+            {getAvailableTablesForEdit(orderId, editState.table).map((candidate) => (
+              <option key={candidate} value={candidate}>
+                {candidate}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
       {renderEditingMealPicker(orderId, editState)}
 
       <div className="panel" style={{ marginTop: 18, padding: 16 }}>
@@ -1073,7 +1133,9 @@ function CashierApp({ menu, categories, tableCount }) {
                               <span className="cashier-section-count">{visibleOrders.length} tilausta</span>
                             </div>
                             <div className="order-list">
-                              {visibleOrders.map((order) => {
+                              {visibleOrders
+                                .slice(0, expandedCashierColumns[status] ? undefined : 25)
+                                .map((order) => {
                                 const groupedItems = groupOrderItems(order.items);
                                 const editState = editingOrders[order.id];
 
@@ -1100,13 +1162,29 @@ function CashierApp({ menu, categories, tableCount }) {
                                         </div>
 
                                         <div className="cashier-items">
-                                          {groupedItems.map((item, itemIndex) => (
+                                          {(expandedOrderItems[order.id]
+                                            ? groupedItems
+                                            : groupedItems.slice(0, MAX_ORDER_ITEMS_PREVIEW)
+                                          ).map((item, itemIndex) => (
                                             <div key={itemIndex} className="cashier-item-row">
                                               <span className="cashier-item-qty">{item.qty}x</span>
                                               <span className="cashier-item-name">{item.meal}</span>
                                               {item.notes ? <span className="cashier-item-notes">{item.notes}</span> : null}
                                             </div>
                                           ))}
+                                          {groupedItems.length > MAX_ORDER_ITEMS_PREVIEW ? (
+                                            <button
+                                              className="btn btn-secondary btn-small"
+                                              onClick={() =>
+                                                setExpandedOrderItems((previous) => ({
+                                                  ...previous,
+                                                  [order.id]: !previous[order.id],
+                                                }))
+                                              }
+                                            >
+                                              {expandedOrderItems[order.id] ? "Näytä vähemmän" : "Näytä kaikki"}
+                                            </button>
+                                          ) : null}
                                         </div>
                                         <div className="cashier-order-actions">
                                           {["waiting", "cooking", "ready"].includes(status) ? (
@@ -1154,6 +1232,21 @@ function CashierApp({ menu, categories, tableCount }) {
                                   </div>
                                 );
                               })}
+                              {visibleOrders.length > 25 ? (
+                                <div className="controls-row" style={{ marginTop: 12 }}>
+                                  <button
+                                    className="btn btn-secondary btn-small"
+                                    onClick={() =>
+                                      setExpandedCashierColumns((previous) => ({
+                                        ...previous,
+                                        [status]: !previous[status],
+                                      }))
+                                    }
+                                  >
+                                    {expandedCashierColumns[status] ? "Näytä vähemmän" : "Näytä kaikki"}
+                                  </button>
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         </div>
@@ -1173,6 +1266,8 @@ function CashierApp({ menu, categories, tableCount }) {
 
 function KitchenApp() {
   const [orders, setOrders] = useState([]);
+  const [expandedOrderItems, setExpandedOrderItems] = useState({});
+  const [expandedColumns, setExpandedColumns] = useState({});
 
   useEffect(() => {
     onValue(ref(db, "orders"), (snapshot) => {
@@ -1242,6 +1337,7 @@ function KitchenApp() {
                   <div className="order-list">
                     {grouped[status]
                       .sort((left, right) => (left.orderIndex || 0) - (right.orderIndex || 0))
+                      .slice(0, expandedColumns[status] ? undefined : 25)
                       .map((order, index) => {
                         const groupedItems = groupOrderItems(order.items);
 
@@ -1289,6 +1385,14 @@ function KitchenApp() {
 
                               {order.updated && order.editSummary ? (
                                 <div className="change-summary">
+                                  {order.editSummary.tableChange ? (
+                                    <div className="change-group changed">
+                                      <div className="change-group-title">Pöytä vaihtui</div>
+                                      <div className="change-row">
+                                        {order.editSummary.tableChange.from} {"->"} {order.editSummary.tableChange.to}
+                                      </div>
+                                    </div>
+                                  ) : null}
                                   {order.editSummary.added?.length > 0 ? (
                                     <div className="change-group added">
                                       <div className="change-group-title">Lisätty</div>
@@ -1296,8 +1400,23 @@ function KitchenApp() {
                                         <div key={`added-${itemIndex}`} className="change-row">
                                           + {item.meal} x{item.qty} {item.notes ? <em>({item.notes})</em> : null}
                                         </div>
-                                      ))}
-                                    </div>
+                      ))}
+                    {grouped[status].length > 25 ? (
+                      <div className="controls-row" style={{ marginTop: 12 }}>
+                        <button
+                          className="btn btn-secondary btn-small"
+                          onClick={() =>
+                            setExpandedColumns((previous) => ({
+                              ...previous,
+                              [status]: !previous[status],
+                            }))
+                          }
+                        >
+                          {expandedColumns[status] ? "Näytä vähemmän" : "Näytä kaikki"}
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                                   ) : null}
                                   {order.editSummary.removed?.length > 0 ? (
                                     <div className="change-group removed">
@@ -1323,7 +1442,10 @@ function KitchenApp() {
                               ) : null}
 
                               <div className="kitchen-items">
-                                {groupedItems.map((item, itemIndex) => (
+                                {(expandedOrderItems[order.id]
+                                  ? groupedItems
+                                  : groupedItems.slice(0, MAX_ORDER_ITEMS_PREVIEW)
+                                ).map((item, itemIndex) => (
                                   <div
                                     key={itemIndex}
                                     className={`kitchen-item-row${order.updated ? " updated-item-row" : ""}`}
@@ -1333,6 +1455,19 @@ function KitchenApp() {
                                     {item.notes ? <span className="kitchen-item-notes">{item.notes}</span> : null}
                                   </div>
                                 ))}
+                                {groupedItems.length > MAX_ORDER_ITEMS_PREVIEW ? (
+                                  <button
+                                    className="btn btn-secondary btn-small"
+                                    onClick={() =>
+                                      setExpandedOrderItems((previous) => ({
+                                        ...previous,
+                                        [order.id]: !previous[order.id],
+                                      }))
+                                    }
+                                  >
+                                    {expandedOrderItems[order.id] ? "Näytä vähemmän" : "Näytä kaikki"}
+                                  </button>
+                                ) : null}
                               </div>
                               </div>
                             )}
@@ -1351,7 +1486,7 @@ function KitchenApp() {
   );
 }
 
-function AdminApp({ menu, categories, tableCount }) {
+function AdminApp({ menu, categories, tableCount, showToast }) {
   const [orders, setOrders] = useState([]);
   const [pastOrders, setPastOrders] = useState([]);
   const [deletedOrders, setDeletedOrders] = useState([]);
@@ -1370,6 +1505,7 @@ function AdminApp({ menu, categories, tableCount }) {
   const [showMealForm, setShowMealForm] = useState(false);
   const [collapsedPanels, setCollapsedPanels] = useState({ "menu-list": true });
   const [mealSearch, setMealSearch] = useState("");
+  const deferredMealSearch = useDeferredValue(mealSearch);
   const [showCategories, setShowCategories] = useState(true);
   const [collapsedCategoryIds, setCollapsedCategoryIds] = useState({});
   const [inlineEditingCategoryId, setInlineEditingCategoryId] = useState(null);
@@ -1415,7 +1551,7 @@ function AdminApp({ menu, categories, tableCount }) {
 
   const saveMeal = async () => {
     if (!name || !price) {
-      alert("Täytä nimi ja hinta");
+      showToast?.("Täytä nimi ja hinta", "warning");
       return;
     }
 
@@ -1461,7 +1597,7 @@ function AdminApp({ menu, categories, tableCount }) {
 
   const saveInlineMeal = async (meal) => {
     if (!inlineMealName.trim() || inlineMealPrice === "") {
-      alert("Täytä nimi ja hinta");
+      showToast?.("Täytä nimi ja hinta", "warning");
       return;
     }
 
@@ -1487,7 +1623,7 @@ function AdminApp({ menu, categories, tableCount }) {
 
   const saveCategory = async () => {
     if (!categoryName.trim()) {
-      alert("Täytä kategorian nimi");
+      showToast?.("Täytä kategorian nimi", "warning");
       return;
     }
 
@@ -1512,6 +1648,7 @@ function AdminApp({ menu, categories, tableCount }) {
     await update(ref(db, "settings"), { tableCount: nextTableCount });
     setTableCountInput(String(nextTableCount));
     setEditingTableCount(false);
+    showToast?.("Pöytämäärä tallennettu.", "info");
   };
 
   const startEditTableCount = () => {
@@ -1536,7 +1673,7 @@ function AdminApp({ menu, categories, tableCount }) {
 
   const saveInlineCategory = async (category) => {
     if (!inlineCategoryName.trim()) {
-      alert("Täytä kategorian nimi");
+      showToast?.("Täytä kategorian nimi", "warning");
       return;
     }
 
@@ -1655,7 +1792,7 @@ function AdminApp({ menu, categories, tableCount }) {
 
   const endDay = async () => {
     if (openOrders.length > 0) {
-      alert("Sulje kaikki avoimet pöydät ennen päivän lopettamista.");
+      showToast?.("Sulje kaikki avoimet pöydät ennen päivän lopettamista.", "warning");
       return;
     }
 
@@ -1721,6 +1858,7 @@ function AdminApp({ menu, categories, tableCount }) {
         await remove(ref(db, `orders/${order.id}`));
       })
     );
+    showToast?.("Avoimet pöydät poistettu.", "info");
   };
 
   const deleteOpenOrder = async (order) => {
@@ -1730,6 +1868,7 @@ function AdminApp({ menu, categories, tableCount }) {
 
     await archiveDeletedOrder(order, "admin");
     await remove(ref(db, `orders/${order.id}`));
+    showToast?.("Pöytä poistettu.", "info");
   };
 
   const todaysClosedOrders = [...pastOrders, ...orders.filter((order) => order.status === "menneet")]
@@ -1776,7 +1915,7 @@ function AdminApp({ menu, categories, tableCount }) {
     const missing = availableCategoryIds.filter((id) => !filtered.includes(id));
     return [...filtered, ...missing];
   })();
-  const normalizedMealSearch = mealSearch.trim().toLowerCase();
+  const normalizedMealSearch = deferredMealSearch.trim().toLowerCase();
   const categoryNameMap = new Map(
     categories.map((category) => [category.id, category.name.toLowerCase()])
   );
@@ -1820,9 +1959,10 @@ function AdminApp({ menu, categories, tableCount }) {
     setDraggingSalesStatId(null);
   };
 
-  const adminPanels = {
-    "menu-list": (
-      <div className="panel admin-menu-panel">
+  const renderAdminPanel = (panelId) => {
+    if (panelId === "menu-list") {
+      return (
+        <div className="panel admin-menu-panel">
         <div className="menu-category-header">
           <div>
             <h2 className="panel-title">Ruokalista</h2>
@@ -1942,7 +2082,7 @@ function AdminApp({ menu, categories, tableCount }) {
             type="text"
             placeholder="Kirjoita annoksen tai kategorian nimi..."
             value={mealSearch}
-            onChange={(event) => setMealSearch(event.target.value)}
+          onChange={(event) => startTransition(() => setMealSearch(event.target.value))}
           />
         </div>
         <div className="controls-row" style={{ marginBottom: 16 }}>
@@ -2179,10 +2319,13 @@ function AdminApp({ menu, categories, tableCount }) {
             <p className="muted">Haulla ei löytynyt annoksia.</p>
           ) : null}
         </div>
-      </div>
-    ),
-    "daily-sales": (
-      <div className="panel">
+        </div>
+      );
+    }
+
+    if (panelId === "daily-sales") {
+      return (
+        <div className="panel">
         <h2 className="panel-title">Päivän myynti</h2>
         <div className="sales-total-card">
           <div className="sales-total-label">Tuotto tänään</div>
@@ -2359,9 +2502,12 @@ function AdminApp({ menu, categories, tableCount }) {
           </div>
         </div>
       </div>
-    ),
-    settings: (
-      <div className="panel">
+      );
+    }
+
+    if (panelId === "settings") {
+      return (
+        <div className="panel">
         <h2 className="panel-title">Asetukset</h2>
         <div className="panel admin-inline-form">
           {!editingTableCount ? (
@@ -2399,7 +2545,10 @@ function AdminApp({ menu, categories, tableCount }) {
           )}
         </div>
       </div>
-    ),
+      );
+    }
+
+    return null;
   };
 
   return (
@@ -2433,7 +2582,7 @@ function AdminApp({ menu, categories, tableCount }) {
                           {collapsedPanels[panelId] ? "Avaa" : "Pienennä"}
                         </button>
                       </div>
-                      {collapsedPanels[panelId] ? null : adminPanels[panelId]}
+                      {collapsedPanels[panelId] ? null : renderAdminPanel(panelId)}
                     </div>
                   )}
                 </Draggable>
@@ -2452,9 +2601,22 @@ export default function App() {
   const [menu, setMenu] = useState([]);
   const [categories, setCategories] = useState([]);
   const [tableCount, setTableCount] = useState(20);
+  const [toasts, setToasts] = useState([]);
   const [adminEntered, setAdminEntered] = useState(false);
   const [adminPasswordInput, setAdminPasswordInput] = useState("");
   const adminPassword = useAdminPassword();
+
+  const showToast = (message, type = "info") => {
+    const id = getTimestamp();
+    setToasts((previous) => [...previous, { id, message, type }]);
+    window.setTimeout(() => {
+      setToasts((previous) => previous.filter((toast) => toast.id !== id));
+    }, 3000);
+  };
+
+  const dismissToast = (id) => {
+    setToasts((previous) => previous.filter((toast) => toast.id !== id));
+  };
 
   useEffect(() => {
     onValue(ref(db, "menu"), (snapshot) => {
@@ -2536,9 +2698,24 @@ export default function App() {
   return (
     <div className="app-shell">
       <Navigation view={view} setView={setView} />
-      {view === "Kassa" ? <CashierApp menu={menu} categories={categories} tableCount={tableCount} /> : null}
+      {view === "Kassa" ? (
+        <CashierApp
+          menu={menu}
+          categories={categories}
+          tableCount={tableCount}
+          showToast={showToast}
+        />
+      ) : null}
       {view === "Keittiö" ? <KitchenApp /> : null}
-      {view === "Admin" && adminEntered ? <AdminApp menu={menu} categories={categories} tableCount={tableCount} /> : null}
+      {view === "Admin" && adminEntered ? (
+        <AdminApp
+          menu={menu}
+          categories={categories}
+          tableCount={tableCount}
+          showToast={showToast}
+        />
+      ) : null}
+      <ToastHost toasts={toasts} onDismiss={dismissToast} />
     </div>
   );
 }

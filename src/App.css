@@ -1025,6 +1025,41 @@
   color: #73594a;
 }
 
+.toast-host {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 9999;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.95);
+  border: 1px solid rgba(127, 88, 63, 0.18);
+  box-shadow: 0 10px 22px rgba(62, 37, 20, 0.12);
+  color: #2f1b11;
+  font-weight: 700;
+}
+
+.toast-warning {
+  border-color: rgba(217, 71, 44, 0.35);
+}
+
+.toast-close {
+  border: 0;
+  background: transparent;
+  color: #8b6b59;
+  cursor: pointer;
+  font-weight: 700;
+}
+
 @media (max-width: 960px) {
   .board-columns,
   .admin-grid {
